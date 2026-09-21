@@ -1159,6 +1159,11 @@ export function AppShell() {
               type="button"
               onClick={() => setSettingsSection(section)}
               disabled={disabled}
+              // React 19 dev-mode reports a false-positive hydration mismatch
+              // for boolean `disabled` (SSR emits `disabled=""`, the parser
+              // reads it as `null` while the JSX is `true`). Same quirk as
+              // the New Session button; see components/SessionSidebar.tsx.
+              suppressHydrationWarning={true}
               title={disabled ? translate("settings.projectRequired") : label}
               aria-label={label}
               style={{
