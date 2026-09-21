@@ -1040,6 +1040,15 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             <button
               onClick={handleNewSession}
               disabled={!selectedCwd}
+              // React 19 dev-mode reports a hydration mismatch on `disabled`
+              // for this button because SSR emits the empty-string boolean
+              // (`disabled=""`) which the hydration parser compares against
+              // the JSX `true` and reports a false positive. The button works
+              // correctly at runtime; suppress the warning only on this
+              // specific attribute (children/structure already match).
+              // See: react-dom-client.development.js → hydrateBooleanAttribute
+              // and the adjacent `inert` branch with the same diagnostic.
+              suppressHydrationWarning={true}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
                 background: "var(--bg-hover)",
