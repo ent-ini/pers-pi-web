@@ -253,6 +253,45 @@ test("does not collapse incomplete skill-looking user text", () => {
   assert.doesNotMatch(html, /aria-expanded/);
 });
 
+test("hides a leading [source:...] tag from a user message", () => {
+  const html = renderMessage({
+    role: "user",
+    content: '[source:pi-web type=text]\nhello world',
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /hello world/);
+  assert.doesNotMatch(html, /\[source:pi-web/);
+});
+
+test("hides source tags from other clients in user messages", () => {
+  // pi-web shows messages from any client; the leading [source:...] line is
+  // metadata and should not appear in the rendered chat bubble.
+  const html = renderMessage({
+    role: "user",
+    content: '[source:pi-macos-app type=text session="Foo" client-send-id="abc"]\nhello world',
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /hello world/);
+  assert.doesNotMatch(html, /\[source:pi-macos-app/);
+});
+
+test("hides source tag from user-message text when images are attached", () => {
+  const html = renderMessage({
+    role: "user",
+    content: [
+      { type: "text", text: '[source:pi-web type=text]\ninspect this' },
+      { type: "image", data: "YWJj", mimeType: "image/png" },
+    ],
+    timestamp: Date.now(),
+  });
+
+  assert.match(html, /inspect this/);
+  assert.match(html, /Preview image/);
+  assert.doesNotMatch(html, /\[source:pi-web/);
+});
+
 test("keeps attached images when restoring a compact command for editing", () => {
   const image = {
     type: "image",

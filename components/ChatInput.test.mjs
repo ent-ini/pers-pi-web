@@ -699,3 +699,27 @@ test("renders image warnings for known text-only defaults without an explicit mo
     clearDraft(draftKey);
   }
 });
+
+test("getUserMessageText strips a leading [source:...] tag", () => {
+  // When the user clicks edit on a message they previously sent from
+  // pi-web (or from any other client that prepends a source tag), the text
+  // restored into the textarea must not contain the metadata line.
+  const message = { role: "user", content: "[source:pi-web type=text]\nhi there" };
+  assert.equal(getUserMessageText(message), "hi there");
+
+  const fromOtherClient = {
+    role: "user",
+    content: '[source:pi-macos-app type=text session="Foo"]\nhi there',
+  };
+  assert.equal(getUserMessageText(fromOtherClient), "hi there");
+});
+
+test("getUserMessageText joins multi-block content and strips a leading source tag", () => {
+  const message = {
+    role: "user",
+    content: [
+      { type: "text", text: "[source:pi-web type=text]\nline A" },
+    ],
+  };
+  assert.equal(getUserMessageText(message), "line A");
+});

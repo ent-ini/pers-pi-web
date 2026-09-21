@@ -27,6 +27,7 @@ import { ImagePreview } from "./ImagePreview";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useI18n } from "@/hooks/useI18n";
 import { useChatAppearance } from "@/hooks/useChatAppearance";
+import { stripSourceTag } from "@/lib/source-tag";
 import type { ToolPreset } from "@/lib/tool-presets";
 import { ModelSelector, type ModelSelectorOption } from "./ModelSelector";
 
@@ -389,11 +390,15 @@ export function canRestoreUserMessage(
 }
 
 export function getUserMessageText(message: UserMessage): string {
-  if (typeof message.content === "string") return message.content;
-  return message.content
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join("\n");
+  const text = typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((block): block is TextContent => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
+  // Hide the `[source:pi-web ...]` (or any other client's) leading line when
+  // restoring the message text into the input box for re-editing.
+  return stripSourceTag(text);
 }
 
 export function getUserMessageDraftImages(message: UserMessage): ChatDraftImage[] {

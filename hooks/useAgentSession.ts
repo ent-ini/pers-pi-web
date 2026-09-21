@@ -21,6 +21,7 @@ import { getPresetFromToolNames, getToolNamesForPreset, type ToolEntry, type Too
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
+import { withSourceTag } from "@/lib/source-tag";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
 import {
@@ -1426,11 +1427,15 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
     rpcPromptPendingRef.current = true;
 
     const imageBlocks = images?.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mimeType, data: img.data } }));
+    // Tag the outgoing text with `[source:pi-web type=text]` so the model and
+    // other clients can tell which client produced the message. The tag is
+    // stripped on display in MessageView/ChatInput/ChatWindow/ChatMinimap.
+    const taggedMessage = withSourceTag(message);
     const userMsg: AgentMessage = {
       role: "user",
       content: imageBlocks?.length
-        ? [...(message.trim() ? [{ type: "text" as const, text: message }] : []), ...imageBlocks]
-        : message,
+        ? [{ type: "text" as const, text: taggedMessage }, ...imageBlocks]
+        : taggedMessage,
       timestamp: Date.now(),
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -1465,17 +1470,17 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
         promptRequestStarted = true;
         await sendAgentCommand(sid, {
           type: "prompt",
-          message,
+          message: taggedMessage,
           ...(piImages?.length ? { images: piImages } : {}),
         });
-        promoteNewSession(1, message);
+        promoteNewSession(1, taggedMessage);
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);
         promptRequestStarted = true;
         await sendAgentCommand(session.id, {
           type: "prompt",
-          message,
+          message: taggedMessage,
           ...(piImages?.length ? { images: piImages } : {}),
         });
       } else {

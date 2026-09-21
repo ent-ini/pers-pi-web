@@ -8,6 +8,7 @@ import {
   normalizeDisplayMath,
 } from "@/lib/markdown";
 import { isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { stripSourceTag } from "@/lib/source-tag";
 import type { AgentMessage, AssistantMessage, CustomMessage, TextContent, UserMessage } from "@/lib/types";
 import { useI18n } from "@/hooks/useI18n";
 import styles from "./ChatMinimap.module.css";
@@ -44,12 +45,13 @@ interface NodeInfo {
 }
 
 function getUserPreview(message: UserMessage | CustomMessage): string {
-  if (typeof message.content === "string") return message.content.trim();
-  return message.content
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
+  const text = typeof message.content === "string"
+    ? message.content
+    : message.content
+        .filter((block): block is TextContent => block.type === "text")
+        .map((block) => block.text)
+        .join("\n");
+  return stripSourceTag(text).trim();
 }
 
 function getAssistantAnswerMarkdown(message: AgentMessage | Partial<AgentMessage>): string {

@@ -17,6 +17,7 @@ import { isThinkingExpandedByDefault, THINKING_EXPANDED_EVENT } from "@/lib/thin
 import { TurnWrittenFiles } from "./TurnWrittenFiles";
 import type { WrittenFile } from "@/lib/turn-written-files";
 import { skillExpansionToCommand } from "@/lib/slash-display";
+import { stripSourceTag } from "@/lib/source-tag";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import type {
   AgentMessage,
@@ -329,12 +330,14 @@ function UserMessageView({ message, cwd, onOpenFile, entryId, onFork, forking, o
   const [expanded, setExpanded] = useState(false);
 
   const content =
-    typeof message.content === "string"
-      ? message.content
-      : message.content
-          .filter((b): b is TextContent => b.type === "text")
-          .map((b) => b.text)
-          .join("\n");
+    stripSourceTag(
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .filter((b): b is TextContent => b.type === "text")
+            .map((b) => b.text)
+            .join("\n"),
+    );
 
   const imageBlocks: ImageContent[] =
     typeof message.content === "string"

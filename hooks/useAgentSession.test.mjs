@@ -196,7 +196,10 @@ test("existing-session prompts rely on the persisted tool selection", () => {
   );
   const existingSessionPrompt = sendSource.slice(sendSource.indexOf("} else if (session)"));
 
-  assert.match(existingSessionPrompt, /type: "prompt",\s*message,/);
+  // The prompt payload uses a `message` field; the value may be the raw
+  // user input or a tagged variant (e.g. `message: taggedMessage`), so we
+  // only assert on the key here.
+  assert.match(existingSessionPrompt, /type: "prompt",\s*message:/);
   assert.doesNotMatch(existingSessionPrompt, /toolNames:/);
   assert.doesNotMatch(sendSource, /restoreSubmission, toolPreset\]\);/);
 });

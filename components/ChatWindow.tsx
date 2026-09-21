@@ -23,6 +23,7 @@ import type { SessionStatsInfo } from "@/lib/pi-types";
 import type { AppUpdateResponse } from "@/lib/api-types";
 import type { ToolEntry } from "@/lib/tool-presets";
 import { findChatScrollAnchor, type ChatScrollPosition } from "@/lib/chat-scroll-position";
+import { stripSourceTag } from "@/lib/source-tag";
 import {
   captureScrollDistance,
   getPromptAnchorSpacerHeight,
@@ -173,14 +174,15 @@ function findFinalAssistantIndex(messages: AgentMessage[], userIdx: number, endI
 function getUserInputText(message: AgentMessage): string | null {
   if (message.role !== "user") return null;
   if (typeof message.content === "string") {
-    const text = message.content.trim();
+    const text = stripSourceTag(message.content).trim();
     return text.length > 0 ? text : null;
   }
-  const text = message.content
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
-    .join("\n")
-    .trim();
+  const text = stripSourceTag(
+    message.content
+      .filter((block) => block.type === "text")
+      .map((block) => block.text)
+      .join("\n"),
+  ).trim();
   return text.length > 0 ? text : null;
 }
 
