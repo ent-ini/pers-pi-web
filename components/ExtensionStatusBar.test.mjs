@@ -20,7 +20,7 @@ function renderStatusBar(props) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
-      null,
+      { initialLocale: "en" },
       React.createElement(ExtensionStatusBar, props),
     ),
   );

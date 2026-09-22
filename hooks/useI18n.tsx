@@ -6,7 +6,7 @@ import { translateMessage } from "@/lib/i18n/format";
 import type { Locale, LocalePlugin, TranslationParams } from "@/lib/i18n/types";
 
 const LOCALE_STORAGE_KEY = "pi-locale";
-const defaultLocale: Locale = "en";
+const defaultLocale: Locale = "ru";
 
 interface I18nContextValue {
   locale: Locale;
@@ -27,7 +27,7 @@ function getMessages(): Record<string, Record<string, string>> {
 function readInitialLocale(): Locale {
   try {
     const stored = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-    if (stored === "en" || stored === "zh-CN" || stored === "zh-TW") return stored;
+    if (stored === "en" || stored === "ru" || stored === "zh-CN" || stored === "zh-TW") return stored;
   } catch {
     // 隐私模式或存储不可用时继续使用浏览器语言。
   }
@@ -36,11 +36,11 @@ function readInitialLocale(): Locale {
 
 /**
  * 提供 Pi Web 的界面语言状态和翻译能力。
- * @param props React 子节点
+ * @param props React 子节点与可选的初始语言（主要用于服务端渲染与测试）
  * @returns 包含语言上下文的 React 节点
  */
-export function I18nProvider({ children }: { children: React.ReactNode }) {
-  const [locale, setLocaleState] = useState<Locale>(defaultLocale);
+export function I18nProvider({ children, initialLocale }: { children: React.ReactNode; initialLocale?: Locale }) {
+  const [locale, setLocaleState] = useState<Locale>(initialLocale ?? defaultLocale);
   const [hydrated, setHydrated] = useState(false);
   const supportedLocales = useMemo(
     () => getSupportedLocales().map((id) => getLocalePlugin(id)).filter((plugin): plugin is LocalePlugin => Boolean(plugin)),

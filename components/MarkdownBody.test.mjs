@@ -16,7 +16,7 @@ function renderMarkdown(markdown, props = {}) {
   return renderToStaticMarkup(
     React.createElement(
       I18nProvider,
-      null,
+      { initialLocale: "en" },
       React.createElement(MarkdownBody, {
         cwd: "/home/me/project",
         onOpenFile() {},
