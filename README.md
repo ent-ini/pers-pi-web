@@ -10,8 +10,7 @@ Local browser UI for the [pi coding agent](https://github.com/earendil-works/pi)
 
 - **Session workspace**: browse, resume, rename, export, and delete conversations grouped by project, with running state, context usage, cost, and compaction details.
 - **Two ways to branch**: **New session** creates an independent session file from an earlier message; **Edit from here** creates a branch inside the current session.
-- **Project file tools**: browse and upload files, inspect Git diffs, and preview source, Markdown, images, audio, PDFs, and DOCX files with automatic refresh.
-- **Git worktrees**: switch checkouts from the sidebar while keeping sessions from the same repository grouped together.
+- **Project file tools**: browse and upload files, and preview source, Markdown, images, audio, PDFs, and DOCX files with automatic refresh.
 - **Web-based configuration**: manage provider login and API keys, models, model tests, plugin packages, and skills without leaving Pi Web.
 - **English, Simplified Chinese, and Traditional Chinese UI**: Pi Web follows the browser language initially and provides a language switcher in the top bar.
 
@@ -95,8 +94,7 @@ npx @agegr/pi-web@latest
 - **Agent data**: Pi Web reads pi data from `~/.pi/agent` by default, including session files under `sessions/<encoded-cwd>/<timestamp>_<uuid>.jsonl`. Set `PI_CODING_AGENT_DIR` to use another pi agent directory.
 - **Filesystem access**: Pi Web must be able to read the agent data directory and the working directories recorded by its sessions. Run Pi Web in the same filesystem environment as pi when sharing existing sessions.
 - **Shared configuration**: the Models panel uses pi's model, settings, and credential storage, so changes are visible to both interfaces.
-- **File access boundary**: the file browser is limited to working directories selected in Pi Web and project or session roots it already knows about; it is not a general filesystem browser.
-- **Git worktrees**: see [Worktrees in Pi Web](./docs/worktrees.md) for switcher visibility, worktree creation, and removal behavior.
+- **File access boundary**: the file browser is limited to working directories selected in Pi Web and session roots it already knows about; it is not a general filesystem browser.
 
 ### Downstream Session Context Menu
 

@@ -37,8 +37,6 @@ import { projectTrustReloadOptions } from "./project-trust";
 import { resolveShellTools } from "./powershell-settings";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
-import { addWorktree, removeWorktree } from "./worktree";
-import { randomUUID } from "node:crypto";
 
 interface HostSession {
   readonly inner: AgentSessionLike;
@@ -116,19 +114,6 @@ function parentContextText(parent: HostSession): string {
   return `${serialized.slice(0, SUBAGENT_CONTEXT_LIMIT)}\n[Parent context truncated]`;
 }
 
-async function cleanupWorktree(
-  parentCwd: string,
-  worktree: { path: string; branch: string } | undefined,
-): Promise<string | undefined> {
-  if (!worktree) return undefined;
-  try {
-    await removeWorktree(parentCwd, worktree.path);
-    return undefined;
-  } catch (error) {
-    return `Worktree retained at ${worktree.path}: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
-
 export function createSubagentController(
   dependencies: SubagentRuntimeDependencies,
 ): SubagentController {
@@ -140,17 +125,12 @@ export function createSubagentController(
     if (!parent?.isAlive()) throw new Error("Parent session is no longer available");
     if (!parent.sessionFile) throw new Error("Parent session must be persisted before starting a subagent");
 
-    let isolatedWorktree: { path: string; branch: string } | undefined;
     try {
       const profile = resolveSubagentProfile(parent.cwd, request.profile);
       if (!profile) throw new Error(`Unknown or disabled subagent profile: ${request.profile}`);
 
       const runInBackground = request.runInBackground ?? profile.runInBackground;
-      const isolation = profile.isolation === "off" ? undefined : request.isolation ?? profile.isolation;
-      if (isolation === "worktree") {
-        isolatedWorktree = await addWorktree(parent.cwd, `pi-web-agent-${randomUUID()}`);
-      }
-      const childCwd = isolatedWorktree?.path ?? parent.cwd;
+      const childCwd = parent.cwd;
       const inheritContext = request.inheritContext ?? profile.inheritContext;
       const maxTurns = request.maxTurns ?? profile.maxTurns;
       if (maxTurns !== undefined && (!Number.isFinite(maxTurns) || maxTurns < 0)) {
@@ -214,9 +194,7 @@ export function createSubagentController(
         settingsManager.getDefaultTools(),
       );
 
-      const sessionManager = isolatedWorktree
-        ? SessionManager.create(childCwd, undefined, { parentSession: parent.sessionFile })
-        : SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
+      const sessionManager = SessionManager.create(parent.cwd, undefined, { parentSession: parent.sessionFile });
       const createdAt = new Date().toISOString();
       const metadata: SubagentMetadata = {
         version: 1,
@@ -236,7 +214,6 @@ export function createSubagentController(
         loadExtensions: profile.loadExtensions,
         ...(promptPlan.exactSystemPrompt !== undefined ? { exactSystemPrompt: promptPlan.exactSystemPrompt } : {}),
         },
-        ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
       sessionManager.appendCustomEntry(SUBAGENT_META_TYPE, metadata);
       sessionManager.appendSessionInfo(metadata.description);
@@ -269,7 +246,6 @@ export function createSubagentController(
         runInBackground,
         status: "queued",
         createdAt,
-        ...(isolatedWorktree ? { worktreePath: isolatedWorktree.path, worktreeBranch: isolatedWorktree.branch } : {}),
       };
 
       let turnCount = 0;
@@ -310,7 +286,6 @@ export function createSubagentController(
         if (stored.abortRequested) {
           const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
           sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
-          await cleanupWorktree(parent.cwd, isolatedWorktree);
           stored.run = result;
           request.onUpdate?.(result);
           getSubagentRuns().delete(initialRun.sessionId);
@@ -360,15 +335,12 @@ export function createSubagentController(
           request.signal?.removeEventListener("abort", handleParentAbort);
         }
 
-        const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
-        if (cleanupError) result = { ...result, worktreeCleanupError: cleanupError };
         const persisted: SubagentResultMetadata = {
           version: 1,
           status: result.status as SubagentResultMetadata["status"],
           completedAt: result.completedAt!,
           ...(result.result ? { result: result.result } : {}),
           ...(result.error ? { error: result.error } : {}),
-          ...(result.worktreeCleanupError ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
         };
         sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, persisted);
         stored.run = result;
@@ -381,14 +353,12 @@ export function createSubagentController(
       const finishQueuedAbort = async () => {
         if (stored.run.status !== "queued") return;
         const result: SubagentRunInfo = { ...initialRun, status: "aborted", completedAt: new Date().toISOString() };
-        const cleanupError = await cleanupWorktree(parent.cwd, isolatedWorktree);
-        const finalResult = cleanupError ? { ...result, worktreeCleanupError: cleanupError } : result;
-        sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: finalResult.completedAt, ...(cleanupError ? { worktreeCleanupError: cleanupError } : {}) });
-        stored.run = finalResult;
-        request.onUpdate?.(finalResult);
+        sessionManager.appendCustomEntry(SUBAGENT_RESULT_TYPE, { version: 1, status: "aborted", completedAt: result.completedAt });
+        stored.run = result;
+        request.onUpdate?.(result);
         getSubagentRuns().delete(initialRun.sessionId);
         dependencies.invalidateSessionList();
-        resolveCompletion(finalResult);
+        resolveCompletion(result);
       };
       const queued = getSubagentQueue().enqueue(
         parentSessionId,
@@ -411,9 +381,6 @@ export function createSubagentController(
 
       return { run: stored.run, completion: stored.completion };
     } catch (error) {
-      if (isolatedWorktree) {
-        try { await removeWorktree(parent.cwd, isolatedWorktree.path); } catch { /* preserve setup failure and avoid force deletion */ }
-      }
       throw error;
     }
   }

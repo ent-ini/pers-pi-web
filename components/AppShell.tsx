@@ -61,7 +61,7 @@ import type { ToolEntry } from "@/lib/tool-presets";
 import { getSessionFamily } from "@/lib/session-family";
 import { getLastSettingsSection, type SettingsSection } from "@/lib/settings-navigation";
 
-type SessionCopyField = "file" | "id" | "projectDir" | "gitBranch" | "gitWorktree";
+type SessionCopyField = "file" | "id" | "projectDir";
 type AutoNameStatus =
   | { kind: "idle" }
   | { kind: "naming" }
@@ -598,8 +598,7 @@ export function AppShell() {
           clearLastOpen(projectKey);
           return;
         }
-        // Keep the temporary composer's draft in its cwd, even when the
-        // remembered session belongs to another worktree of this project.
+        // Keep the temporary composer's draft in its selected directory.
         const activeDraftKey = activeNewSessionDraftKeyRef.current;
         if (activeDraftKey) {
           rekeyDraft(activeDraftKey, parkedNewSessionDraftKey(cwd));
@@ -644,9 +643,9 @@ export function AppShell() {
     // The server may hydrate a normalized key after a custom cwd is already
     // active. Updating identity for the exact same cwd is not a user switch.
     if (currentFreshCwd === cwd && currentProject !== newProject) return;
-    // Existing sessions stay open when the worktree selector moves within the
-    // same project. A fresh composer must remount when its effective cwd moves,
-    // otherwise its already-created runtime would keep sending to the old cwd.
+    // Existing sessions stay open when the selected directory remains unchanged.
+    // A fresh composer must remount when its effective cwd moves, otherwise its
+    // already-created runtime would keep sending to the old cwd.
     if (
       currentProject === newProject
       && (selectedSession !== null || currentFreshCwd === cwd)
@@ -680,7 +679,7 @@ export function AppShell() {
     setActiveTopPanel(null);
     if (currentProject !== newProject) {
       // File tabs are keyed by absolute path, so tabs opened in the previous
-      // project must not linger. Same-project worktree switches keep them.
+      // directory must not linger.
       setFileTabs([]);
       if (!activeFileTabId || activeFileTabId.startsWith("file:")) {
         setActiveFileTabId(null);
@@ -776,8 +775,8 @@ export function AppShell() {
 
   // Client-built transient SessionInfo (new session / fork) lacks the
   // server-computed projectKey, which the same-project check in
-  // handleCwdChange relies on. Hydrate it from the session list so switching
-  // worktrees right after creating a session doesn't close the chat.
+  // handleCwdChange relies on. Hydrate it from the session list after the
+  // newly created session is persisted.
   const hydrateSelectedSession = useCallback((sessionId: string) => {
     void fetch("/api/sessions", { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<{ sessions: SessionInfo[] }>) : null))
@@ -986,15 +985,13 @@ export function AppShell() {
   const handleOpenFile = useCallback((
     filePath: string,
     fileName: string,
-    options?: { sourceSessionId?: string | null; modeHint?: "diff" },
+    options?: { sourceSessionId?: string | null },
   ) => {
     const sourceSessionId = options?.sourceSessionId;
-    const modeHint = options?.modeHint;
     const tabId = `file:${filePath}`;
     setFileTabs((prev) => openFileTab(prev, {
       fileName,
       filePath,
-      modeHint,
       sourceSessionId,
       tabId,
     }));
@@ -2075,8 +2072,6 @@ export function AppShell() {
                     ];
                     const projectRows = [
                       ...(ws ? [{ label: translate("session.projectDir"), value: ws.projectRoot ?? ws.cwd, copyField: "projectDir" as const }] : []),
-                      ...(ws?.branch ? [{ label: translate("session.gitBranch"), value: ws.branch, copyField: "gitBranch" as const }] : []),
-                      ...(ws?.isWorktree ? [{ label: translate("session.gitWorktree"), value: ws.cwd, copyField: "gitWorktree" as const }] : []),
                     ];
                     const messageRows = [
                        [translate("session.user"), sessionStats.userMessages.toLocaleString(locale)],
@@ -2136,8 +2131,6 @@ export function AppShell() {
                       file: "session.copyFile",
                       id: "session.copyId",
                       projectDir: "session.copyProjectDir",
-                      gitBranch: "session.copyGitBranch",
-                      gitWorktree: "session.copyGitWorktree",
                     };
                     const copyButton = (field: SessionCopyField, value: string) => {
                       const copied = copiedSessionField === field;
@@ -2433,7 +2426,6 @@ export function AppShell() {
               filePath={activeFileTab.filePath}
               cwd={activeCwd ?? undefined}
               sourceSessionId={activeFileTab.sourceSessionId}
-              gitRefreshKey={explorerRefreshKey}
               initialDisplayMode={activeFileTab.initialDisplayMode}
               initialState={activeFileTab.viewerState}
               watchEnabled={rightPanelOpen}

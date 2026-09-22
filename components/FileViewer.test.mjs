@@ -32,7 +32,7 @@ test("large source previews bypass the per-line syntax highlighter", () => {
   assert.notEqual(source.indexOf("highlightedSource", branchStart), -1);
 });
 
-test("lightweight source rows are skipped for highlighted, diff, and preview views", () => {
+test("lightweight source rows are skipped for highlighted and preview views", () => {
   // Execute the source-view calculations without mounting the file-fetching component.
   const file = ts.createSourceFile("FileViewer.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const viewer = file.statements.find((node) => ts.isFunctionDeclaration(node) && node.name?.text === "TextFileViewer");
@@ -42,7 +42,7 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
     ),
   ).map((node) => node.getText(file)).join("\n");
   const { outputText } = ts.transpileModule(`
-    return (data, displayMode, hasGitDiff = false, isDeletedDiff = false, wrapLines = false) => {
+    return (data, displayMode, wrapLines = false) => {
       const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
       const FILE_LINE_NUMBER_STYLE = {};
       ${calculations}
@@ -53,16 +53,14 @@ test("lightweight source rows are skipped for highlighted, diff, and preview vie
   const large = { content: "line\n".repeat(1_000), language: "text" };
 
   assert.equal(render({ ...large, content: "line\n".repeat(999) }, "source"), null);
-  assert.equal(render(large, "diff", true), null);
-  assert.equal(render(large, "source", true, true), null);
   for (const language of ["html", "markdown"]) {
     assert.equal(render({ ...large, language }, "preview"), null);
   }
-  for (const mode of ["source", "diff", "preview"]) {
+  for (const mode of ["source", "preview"]) {
     const rows = render(large, mode);
     assert.equal(rows.length, 1_001, `${mode} must retain its source fallback`);
     assert.equal(rows[0].props["data-line-number"], 1);
     assert.equal(rows[0].props.children[1].props.children, "line");
   }
-  assert.equal(render(large, "source", false, false, true)[0].props.children[1].props.style.whiteSpace, "pre-wrap");
+  assert.equal(render(large, "source", true)[0].props.children[1].props.style.whiteSpace, "pre-wrap");
 });

@@ -34,7 +34,6 @@ export interface SubagentProfile {
   runInBackground: boolean;
   promptMode: "replace" | "append";
   color?: string;
-  isolation?: "worktree" | "off";
   persistSession?: boolean;
   enabled: boolean;
   scope: SubagentScope;
@@ -52,8 +51,6 @@ export interface SubagentMetadata {
   runInBackground: boolean;
   createdAt: string;
   resourceSnapshot: SubagentResourceSnapshot;
-  worktreePath?: string;
-  worktreeBranch?: string;
 }
 
 export interface SubagentResourceSnapshot {
@@ -79,7 +76,6 @@ export interface SubagentResultMetadata {
   completedAt: string;
   result?: string;
   error?: string;
-  worktreeCleanupError?: string;
 }
 
 export interface SubagentStatusMetadata {
@@ -101,9 +97,6 @@ export interface SubagentRunInfo {
   completedAt?: string;
   result?: string;
   error?: string;
-  worktreePath?: string;
-  worktreeBranch?: string;
-  worktreeCleanupError?: string;
 }
 
 const DEFAULT_TOOLS = ["read", "bash", "edit", "write", "grep", "find", "ls"];
@@ -132,7 +125,6 @@ const MANAGED_FRONTMATTER_KEYS = new Set([
   "max_turns",
   "prompt_mode",
   "color",
-  "isolation",
   "persist_session",
 ]);
 
@@ -304,7 +296,6 @@ function parseProfileFile(filePath: string, scope: SubagentScope): SubagentProfi
       runInBackground: booleanValue(data?.run_in_background, false),
       promptMode: data?.prompt_mode === "replace" ? "replace" : "append",
       ...(stringValue(data?.color) ? { color: stringValue(data?.color) } : {}),
-      ...(data?.isolation === "worktree" || data?.isolation === "off" ? { isolation: data.isolation } : {}),
       ...(typeof data?.persist_session === "boolean" ? { persistSession: data.persist_session } : {}),
       enabled: booleanValue(data?.enabled, true),
       scope,
@@ -435,7 +426,6 @@ export function saveSubagentProfile(
   if (profile.thinking) managed.thinking = profile.thinking;
   if (maxTurns) managed.max_turns = maxTurns;
   if (profile.color?.trim()) managed.color = profile.color.trim();
-  if (profile.isolation) managed.isolation = profile.isolation;
   if (profile.persistSession !== undefined) managed.persist_session = profile.persistSession;
   // Managed keys win; keys this app does not own follow in their original order.
   const frontmatter: Record<string, unknown> = { ...managed };
@@ -458,7 +448,6 @@ export function saveSubagentProfile(
     ...(maxTurns ? { maxTurns } : { maxTurns: undefined }),
     promptMode,
     ...(profile.color ? { color: profile.color } : {}),
-    ...(profile.isolation ? { isolation: profile.isolation } : {}),
     ...(profile.persistSession !== undefined ? { persistSession: profile.persistSession } : {}),
     scope,
     filePath,
@@ -596,8 +585,6 @@ export function readSubagentRun(entries: readonly SessionEntry[], sessionId: str
     ...(result && typeof result.completedAt === "string" ? { completedAt: result.completedAt } : {}),
     ...(result && typeof result.result === "string" ? { result: result.result } : {}),
     ...(result && typeof result.error === "string" ? { error: result.error } : {}),
-    ...(typeof data.worktreePath === "string" ? { worktreePath: data.worktreePath } : {}),
-    ...(typeof data.worktreeBranch === "string" ? { worktreeBranch: data.worktreeBranch } : {}),
-    ...(result && typeof result.worktreeCleanupError === "string" ? { worktreeCleanupError: result.worktreeCleanupError } : {}),
+
   };
 }

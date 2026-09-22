@@ -24,8 +24,6 @@ import { parseFrontmatter } from "@/lib/frontmatter";
 import { markdownPreviewRehypePlugins, markdownPreviewRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
 import { CodeBlock, MermaidBlock } from "./MermaidBlock";
 import { FrontmatterCard } from "./FrontmatterCard";
-import { parseUnifiedPatch } from "@/lib/patch";
-import type { GitFileDiffResponse } from "@/lib/git-types";
 import { useI18n } from "@/hooks/useI18n";
 import {
   resolveInitialFileDisplayMode,
@@ -43,7 +41,6 @@ interface Props {
   onMentionLines?: (relativePath: string, startLine: number, endLine: number) => void;
   /** Insert this file's relative path into the chat input (@ mention). */
   onAtMention?: (relativePath: string, isDir: boolean) => void;
-  gitRefreshKey?: number;
   initialDisplayMode?: DisplayMode;
   initialState?: FileViewerState;
   onStateChange?: (state: FileViewerState) => void;
@@ -62,7 +59,6 @@ const SOURCE_HIGHLIGHT_MAX_LINES = 1_000;
 const DISPLAY_MODE_LABELS: Record<DisplayMode, string> = {
   source: "Source",
   preview: "Preview",
-  diff: "Diff",
 };
 
 const FILE_CODE_STYLE: CSSProperties = {
@@ -242,188 +238,10 @@ function DownloadLink({ filePath, sourceSessionId }: { filePath: string; sourceS
   );
 }
 
-type DiffLine = {
-  type: "unchanged" | "removed" | "added";
-  text: string;
-  oldLineNo: number | null;
-  newLineNo: number | null;
-};
-
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function diffLines(patch: string): DiffLine[] {
-  const files = parseUnifiedPatch(patch);
-  if (!files) return [];
-
-  return files.flatMap((file) => file.rows.flatMap((row): DiffLine[] => {
-    if (row.type === "hunk") return [];
-    if (row.left.type === "context" && row.right.type === "context") {
-      return [{
-        type: "unchanged",
-        text: row.right.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: row.right.lineNo,
-      }];
-    }
-
-    const lines: DiffLine[] = [];
-    if (row.left.type === "removed") {
-      lines.push({
-        type: "removed",
-        text: row.left.text,
-        oldLineNo: row.left.lineNo,
-        newLineNo: null,
-      });
-    }
-    if (row.right.type === "added") {
-      lines.push({
-        type: "added",
-        text: row.right.text,
-        oldLineNo: null,
-        newLineNo: row.right.lineNo,
-      });
-    }
-    return lines;
-  }));
-}
-
-function DiffView({ patch }: { patch: string }) {
-  const { t } = useI18n();
-  const diff = diffLines(patch);
-
-  const hasChanges = diff.some((l) => l.type !== "unchanged");
-  if (!hasChanges) {
-    return (
-      <div style={{ padding: "12px 16px", fontSize: 12, color: "var(--text-dim)", fontFamily: "var(--font-mono)" }}>
-        {t("i18n.noChanges")}
-      </div>
-    );
-  }
-
-  // Render with context: show 3 lines around each change, collapse the rest
-  const CONTEXT = 3;
-  const changed = new Set(diff.flatMap((l, i) => (l.type !== "unchanged" ? [i] : [])));
-  const visible = new Set<number>();
-  for (const ci of changed) {
-    for (let j = Math.max(0, ci - CONTEXT); j <= Math.min(diff.length - 1, ci + CONTEXT); j++) {
-      visible.add(j);
-    }
-  }
-
-  const segments: Array<{ hidden: true; count: number } | { hidden: false; lines: DiffLine[] }> = [];
-  let i = 0;
-  while (i < diff.length) {
-    if (visible.has(i)) {
-      const block: DiffLine[] = [];
-      while (i < diff.length && visible.has(i)) {
-        block.push(diff[i]);
-        i++;
-      }
-      segments.push({ hidden: false, lines: block });
-    } else {
-      let count = 0;
-      while (i < diff.length && !visible.has(i)) {
-        count++;
-        i++;
-      }
-      segments.push({ hidden: true, count });
-    }
-  }
-
-  return (
-    <div
-      className="file-diff-view"
-      style={{
-        width: "max-content",
-        minWidth: "100%",
-        ...FILE_CODE_STYLE,
-      }}
-    >
-      {segments.map((seg, si) => {
-        if (seg.hidden) {
-          const result = (
-            <div
-              key={si}
-              style={{
-                padding: "2px 16px",
-                color: "var(--text-dim)",
-                background: "var(--bg-panel)",
-                fontSize: 11,
-                borderTop: "1px solid var(--border)",
-                borderBottom: "1px solid var(--border)",
-              }}
-            >
-              ... {seg.count} unchanged lines ...
-            </div>
-          );
-          return result;
-        }
-        const lines = seg.lines.map((line, li) => {
-          const bg =
-            line.type === "added"
-              ? "rgba(0,200,80,0.12)"
-              : line.type === "removed"
-              ? "rgba(240,60,60,0.14)"
-              : "transparent";
-          const prefix =
-            line.type === "added" ? "+" : line.type === "removed" ? "-" : " ";
-          const prefixColor =
-            line.type === "added" ? "#4ade80" : line.type === "removed" ? "#f87171" : "var(--text-dim)";
-
-          return (
-            <div
-              key={li}
-              className="file-diff-line"
-              style={{
-                display: "flex",
-                minWidth: "100%",
-                background: bg,
-                borderLeft: line.type === "added"
-                  ? "3px solid #4ade80"
-                  : line.type === "removed"
-                  ? "3px solid #f87171"
-                  : "3px solid transparent",
-              }}
-            >
-              <span
-                style={FILE_LINE_NUMBER_STYLE}
-              >
-                {line.type === "removed" ? line.oldLineNo : line.newLineNo}
-              </span>
-              <span
-                style={{
-                  minWidth: 16,
-                  padding: "0 6px",
-                  color: prefixColor,
-                  userSelect: "none",
-                  flexShrink: 0,
-                  fontWeight: 600,
-                }}
-              >
-                {prefix}
-              </span>
-              <span
-                className="file-diff-line-content"
-                style={{
-                  flexShrink: 0,
-                  padding: "0 8px 0 0",
-                  whiteSpace: "pre",
-                  color: "var(--text)",
-                }}
-              >
-                {line.text || "\u00a0"}
-              </span>
-            </div>
-          );
-        });
-        return <div key={si}>{lines}</div>;
-      })}
-    </div>
-  );
 }
 
 function ImageViewer({ filePath, cwd, sourceSessionId, watchEnabled = true }: Props) {
@@ -1085,7 +903,6 @@ export function FileViewer({
   onOpenFile,
   onMentionLines,
   onAtMention,
-  gitRefreshKey,
   initialDisplayMode,
   initialState,
   onStateChange,
@@ -1111,7 +928,6 @@ export function FileViewer({
       onOpenFile={onOpenFile}
       onMentionLines={onMentionLines}
       onAtMention={onAtMention}
-      gitRefreshKey={gitRefreshKey}
       initialDisplayMode={initialDisplayMode}
       initialState={initialState}
       onStateChange={onStateChange}
@@ -1127,7 +943,6 @@ function TextFileViewer({
   onOpenFile,
   onMentionLines,
   onAtMention,
-  gitRefreshKey,
   initialDisplayMode,
   initialState,
   onStateChange,
@@ -1136,9 +951,6 @@ function TextFileViewer({
   const { isDark } = useTheme();
   const { t } = useI18n();
   const [data, setData] = useState<FileData | null>(null);
-  const [gitDiff, setGitDiff] = useState<GitFileDiffResponse | null>(null);
-  const [gitDiffLoading, setGitDiffLoading] = useState(false);
-  const [gitDiffResolved, setGitDiffResolved] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1151,9 +963,7 @@ function TextFileViewer({
   const [watching, setWatching] = useState(false);
   const esRef = useRef<EventSource | null>(null);
   const contentRequestRef = useRef(0);
-  const gitDiffRequestRef = useRef(0);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const autoDiffAppliedRef = useRef(false);
   const defaultPreviewEligibleRef = useRef(
     initialState === undefined && initialDisplayMode === undefined,
   );
@@ -1192,7 +1002,6 @@ function TextFileViewer({
 
     viewerStateRef.current = nextState;
     scrollRestorePendingRef.current = true;
-    autoDiffAppliedRef.current = false;
     setDisplayMode(requestedInitialDisplayMode);
     setWrapLines(initialWrapLines);
 
@@ -1231,32 +1040,6 @@ function TextFileViewer({
       });
   }, [sourceSessionId]);
 
-  const fetchGitDiff = useCallback(async (targetPath: string) => {
-    const requestId = ++gitDiffRequestRef.current;
-    setGitDiffLoading(true);
-    if (!cwd) {
-      setGitDiff(null);
-      setGitDiffLoading(false);
-      setGitDiffResolved(true);
-      return;
-    }
-
-    try {
-      const params = new URLSearchParams({ cwd, path: targetPath });
-      const response = await fetch(`/api/git/diff?${params.toString()}`);
-      const next = await response.json() as GitFileDiffResponse & { error?: string };
-      if (requestId !== gitDiffRequestRef.current) return;
-      setGitDiff(response.ok && next.supported && typeof next.patch === "string" ? next : null);
-    } catch {
-      if (requestId === gitDiffRequestRef.current) setGitDiff(null);
-    } finally {
-      if (requestId === gitDiffRequestRef.current) {
-        setGitDiffLoading(false);
-        setGitDiffResolved(true);
-      }
-    }
-  }, [cwd]);
-
   // Reset and load the file itself when its identity changes. Live watching is
   // managed separately so pausing it never clears the displayed content.
   useEffect(() => {
@@ -1264,8 +1047,6 @@ function TextFileViewer({
     setLoading(true);
     setError(null);
     setData(null);
-    setGitDiff(null);
-    setGitDiffResolved(false);
     setWatching(false);
 
     fetchContent(filePath).finally(() => {
@@ -1289,7 +1070,6 @@ function TextFileViewer({
 
     const synchronize = () => {
       void fetchContent(filePath);
-      void fetchGitDiff(filePath);
     };
 
     const es = new EventSource(getFileApiUrl(filePath, "watch", sourceSessionId));
@@ -1314,11 +1094,7 @@ function TextFileViewer({
       es.close();
       if (esRef.current === es) esRef.current = null;
     };
-  }, [filePath, fetchContent, fetchGitDiff, sourceSessionId, watchEnabled]);
-
-  useEffect(() => {
-    void fetchGitDiff(filePath);
-  }, [fetchGitDiff, filePath, gitRefreshKey]);
+  }, [filePath, fetchContent, sourceSessionId, watchEnabled]);
 
   useEffect(() => {
     // HTML gets the same rendered-first treatment as markdown: a generated page
@@ -1334,22 +1110,6 @@ function TextFileViewer({
       updateDisplayMode("preview");
     }
   }, [data?.language, data?.truncated, updateDisplayMode]);
-
-  const hasGitDiff = gitDiff?.supported === true && typeof gitDiff.patch === "string";
-  const isDeletedDiff = hasGitDiff && gitDiff.status === "deleted";
-
-  useEffect(() => {
-    if (gitDiffResolved && !hasGitDiff && displayMode === "diff") updateDisplayMode("source");
-  }, [displayMode, gitDiffResolved, hasGitDiff, updateDisplayMode]);
-
-  // Wait for the git request before restoring diff mode so the unresolved
-  // placeholder cannot immediately demote it back to source.
-  useEffect(() => {
-    if (requestedInitialDisplayMode === "diff" && hasGitDiff && !autoDiffAppliedRef.current) {
-      autoDiffAppliedRef.current = true;
-      updateDisplayMode("diff");
-    }
-  }, [requestedInitialDisplayMode, hasGitDiff, updateDisplayMode]);
 
   const markdownPreview = useMemo(
     () => (data?.language === "markdown" ? normalizeDisplayMath(data.content) : ""),
@@ -1367,9 +1127,8 @@ function TextFileViewer({
   const isHtml = language === "html";
   const isMarkdown = language === "markdown";
   const hasPreview = !data?.truncated && (isHtml || isMarkdown);
-  const effectiveDisplayMode = isDeletedDiff ? "diff" : displayMode;
+  const effectiveDisplayMode = displayMode;
   const useLightweightSource = sourceLines.length > SOURCE_HIGHLIGHT_MAX_LINES
-    && !(effectiveDisplayMode === "diff" && hasGitDiff)
     && !(effectiveDisplayMode === "preview" && hasPreview);
   // react-syntax-highlighter rebuilds every token element on each render, which
   // costs hundreds of milliseconds on large files. Cache the rendered trees so
@@ -1491,10 +1250,7 @@ function TextFileViewer({
   }, [displayMode, mentionLineRange, onMentionLines]);
 
   useEffect(() => {
-    if (!scrollRestorePendingRef.current || loading) return;
-    if (error && !isDeletedDiff) return;
-    if (requestedInitialDisplayMode === "diff" && !gitDiffResolved) return;
-    if (requestedInitialDisplayMode === "diff" && hasGitDiff && displayMode !== "diff") return;
+    if (!scrollRestorePendingRef.current || loading || error) return;
 
     const content = contentRef.current;
     if (!content) return;
@@ -1504,16 +1260,11 @@ function TextFileViewer({
     scrollRestorePendingRef.current = false;
   }, [
     data?.content,
-    displayMode,
     error,
-    gitDiffResolved,
-    hasGitDiff,
-    isDeletedDiff,
     loading,
-    requestedInitialDisplayMode,
   ]);
 
-  if (loading || (requestedInitialDisplayMode === "diff" && gitDiffLoading && !data)) {
+  if (loading) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13 }}>
         {t("i18n.loading")}
@@ -1521,7 +1272,7 @@ function TextFileViewer({
     );
   }
 
-  if (error && !isDeletedDiff) {
+  if (error) {
     return (
       <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#f87171", fontSize: 13 }}>
         {error}
@@ -1529,21 +1280,16 @@ function TextFileViewer({
     );
   }
 
-  if (!data && !isDeletedDiff) return null;
+  if (!data) return null;
 
   const content = viewerContent;
   const markdownDirectory = getFileDirectory(filePath);
   const lines = sourceLines;
-  const displayModes: DisplayMode[] = isDeletedDiff
-    ? ["diff"]
-    : [
-        "source",
-        ...(hasPreview ? ["preview" as const] : []),
-        ...(hasGitDiff ? ["diff" as const] : []),
-      ];
-  const metadata = isDeletedDiff
-    ? t("files.deleted")
-    : `${language} · ${lines.length} lines · ${formatSize(data!.size)}`;
+  const displayModes: DisplayMode[] = [
+    "source",
+    ...(hasPreview ? ["preview" as const] : []),
+  ];
+  const metadata = `${language} · ${lines.length} lines · ${formatSize(data.size)}`;
 
   return (
     <div className="file-viewer-shell" style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", position: "relative" }}>
@@ -1566,17 +1312,15 @@ function TextFileViewer({
         </span>
 
         <span className="file-viewer-meta" title={metadata}>{metadata}</span>
-        {!isDeletedDiff && (
-          <span
-            title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-            aria-label={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
-            className="file-viewer-live-indicator"
-            style={{
-              background: watching ? "#4ade80" : "var(--border)",
-              boxShadow: watching ? "0 0 4px #4ade80" : "none",
-            }}
-          />
-        )}
+        <span
+          title={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+          aria-label={watching ? t("i18n.liveSync") : t("i18n.notWatching")}
+          className="file-viewer-live-indicator"
+          style={{
+            background: watching ? "#4ade80" : "var(--border)",
+            boxShadow: watching ? "0 0 4px #4ade80" : "none",
+          }}
+        />
 
         <div className="file-viewer-controls">
           {displayModes.length > 1 && (
@@ -1588,7 +1332,6 @@ function TextFileViewer({
                     key={mode}
                     type="button"
                     onClick={() => updateDisplayMode(mode)}
-                    title={mode === "diff" ? t("i18n.compareHead") : undefined}
                     aria-pressed={active}
                     className="file-viewer-mode-button"
                     style={{
@@ -1655,7 +1398,7 @@ function TextFileViewer({
             )}
           </div>
 
-          {!isDeletedDiff && <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />}
+          <DownloadLink filePath={filePath} sourceSessionId={sourceSessionId} />
         </div>
       </div>
 
@@ -1699,9 +1442,7 @@ function TextFileViewer({
         }}
         style={{ flex: 1, overflow: "auto", background: "var(--bg)", paddingBottom: data?.truncated ? 48 : undefined }}
       >
-        {effectiveDisplayMode === "diff" && hasGitDiff ? (
-          <DiffView patch={gitDiff.patch!} />
-        ) : isHtml && effectiveDisplayMode === "preview" ? (
+        {isHtml && effectiveDisplayMode === "preview" ? (
           <iframe
             srcDoc={content}
             sandbox="allow-scripts"

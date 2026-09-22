@@ -4,13 +4,9 @@ import { forwardRef, useState, useCallback, useEffect, useImperativeHandle, useM
 import { getFileIcon, FolderIcon } from "./FileIcons";
 import {
   encodeFilePathForApi,
-  getFileDirectory,
-  getFileName,
   getRelativeFilePath,
   joinFilePath,
-  normalizeFilePathSlashes,
 } from "@/lib/file-paths";
-import type { GitFileStatus, GitFileStatusKind, GitStatusResponse } from "@/lib/git-types";
 import type { FileIndexEntry } from "@/lib/file-fuzzy";
 import { buildSearchTree, type SearchTreeNode } from "@/lib/search-tree";
 import { useI18n } from "@/hooks/useI18n";
@@ -34,19 +30,18 @@ interface FileNode {
 
 interface Props {
   cwd: string;
-  onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
+  onOpenFile: (filePath: string, fileName: string) => void;
   refreshKey?: number;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   onAtMentions?: (relativePaths: string[]) => void;
   onUploadBusyChange?: (busy: boolean) => void;
-  changesCollapsed: boolean;
-  onChangesCountChange?: (count: number) => void;
   fileSearchOpen?: boolean;
   onFileSearchOpenChange?: (open: boolean) => void;
 }
 
 export interface FileExplorerHandle {
   openUploadPicker: () => void;
+  startCreateFolder: () => void;
 }
 
 type UploadPhase = "idle" | "checking" | "uploading";
@@ -67,20 +62,28 @@ interface UploadResponse {
 }
 
 interface UploadSummary {
+  targetDirectory: string;
   uploaded: string[];
   skipped: string[];
   errors: UploadError[];
 }
 
 interface PendingConflict {
+  targetDirectory: string;
   files: File[];
   conflicts: string[];
   nonReplaceable: string[];
 }
 
-async function fetchEntries(dirPath: string): Promise<FileNode[]> {
+function hasExternalFiles(dataTransfer: DataTransfer): boolean {
+  // Browsers deliberately keep DataTransfer.files empty until drop, so use the
+  // advertised type while hovering and read the files only in onDrop.
+  return Array.from(dataTransfer.types).includes("Files");
+}
+
+async function fetchEntries(dirPath: string, showHidden = false): Promise<FileNode[]> {
   const encoded = encodeFilePathForApi(dirPath);
-  const res = await fetch(`/api/files/${encoded}?type=list`);
+  const res = await fetch(`/api/files/${encoded}?type=list${showHidden ? "&showHidden=1" : ""}`);
   if (!res.ok) {
     let message = `Failed to load files (HTTP ${res.status})`;
     try {
@@ -100,54 +103,6 @@ async function fetchEntries(dirPath: string): Promise<FileNode[]> {
     children: e.isDir ? [] : undefined,
     loaded: !e.isDir,
   }));
-}
-
-async function fetchGitStatus(cwd: string): Promise<GitStatusResponse> {
-  const params = new URLSearchParams({ cwd });
-  const res = await fetch(`/api/git/status?${params.toString()}`);
-  if (!res.ok) throw new Error(`Failed to load Git status (HTTP ${res.status})`);
-  return res.json() as Promise<GitStatusResponse>;
-}
-
-const GIT_STATUS_KEYS: Record<GitFileStatusKind, string> = {
-  modified: "files.modified",
-  added: "files.added",
-  deleted: "files.deleted",
-  renamed: "files.renamed",
-  untracked: "files.untracked",
-  conflict: "files.conflict",
-};
-
-const GIT_STATUS_COLORS: Record<GitFileStatusKind, string> = {
-  modified: "#d6a84b",
-  added: "#4ade80",
-  deleted: "#f87171",
-  renamed: "#60a5fa",
-  untracked: "#4ade80",
-  conflict: "#f87171",
-};
-
-function GitStatusBadge({ status, t }: { status: GitFileStatus; t: Translate }) {
-  return (
-    <span
-      title={t(GIT_STATUS_KEYS[status.status])}
-      aria-label={t(GIT_STATUS_KEYS[status.status])}
-      style={{
-        width: 14,
-        height: 14,
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        color: GIT_STATUS_COLORS[status.status],
-        fontFamily: "var(--font-mono)",
-        fontSize: 11,
-        fontWeight: 600,
-      }}
-    >
-      {status.code}
-    </span>
-  );
 }
 
 function uploadFiles(
@@ -185,15 +140,6 @@ function uploadFiles(
   });
 }
 
-function MentionIcon({ size = 11 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
-  );
-}
-
 function DismissButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
     <button
@@ -223,40 +169,55 @@ function TreeNode({
   onToggleExpanded,
   refreshToken,
   highlightedPaths,
-  gitStatusByPath,
-  changedDirectoryPaths,
+  draggedPath,
+  dropTargetPath,
+  deletingPaths,
+  onDragStart,
+  onDragEnd,
+  onDropTarget,
+  onDropFiles,
+  onMove,
+  onDelete,
+  onContextMenu,
+  showHidden,
   t,
 }: {
   node: FileNode;
   depth: number;
   cwd: string;
-  onOpenFile: (filePath: string, fileName: string, options?: OpenFileOptions) => void;
+  onOpenFile: (filePath: string, fileName: string) => void;
   onAtMention?: (relativePath: string, isDir: boolean) => void;
   expandedPaths: Set<string>;
   onToggleExpanded: (fullPath: string, open: boolean) => void;
   refreshToken?: string;
   highlightedPaths: Set<string>;
-  gitStatusByPath: Map<string, GitFileStatus>;
-  changedDirectoryPaths: Set<string>;
+  draggedPath: string | null;
+  dropTargetPath: string | null;
+  deletingPaths: Set<string>;
+  onDragStart: (node: FileNode) => void;
+  onDragEnd: () => void;
+  onDropTarget: (targetPath: string) => void;
+  onDropFiles: (targetDirectory: string, files: File[]) => void;
+  onMove: (sourcePath: string, targetDirectory: string) => void;
+  onDelete: (node: FileNode) => void;
+  onContextMenu: (node: FileNode, event: React.MouseEvent<HTMLDivElement>) => void;
+  showHidden: boolean;
   t: Translate;
 }) {
   const open = expandedPaths.has(node.fullPath);
   const highlighted = highlightedPaths.has(node.fullPath);
-  const normalizedPath = normalizeFilePathSlashes(node.fullPath);
-  const gitStatus = gitStatusByPath.get(normalizedPath);
-  const containsGitChanges = node.isDir && (
-    gitStatus !== undefined || changedDirectoryPaths.has(normalizedPath)
-  );
   const [children, setChildren] = useState<FileNode[]>(node.children ?? []);
   const [loaded, setLoaded] = useState(node.loaded ?? false);
   const [loading, setLoading] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const deleting = deletingPaths.has(node.fullPath);
+  const dropTarget = dropTargetPath === node.fullPath;
 
   const loadChildren = useCallback(async (force = false) => {
     if (loaded && !force) return;
     setLoading(true);
     try {
-      const entries = await fetchEntries(node.fullPath);
+      const entries = await fetchEntries(node.fullPath, showHidden);
       setChildren(entries);
       setLoaded(true);
     } catch {
@@ -264,15 +225,16 @@ function TreeNode({
     } finally {
       setLoading(false);
     }
-  }, [loaded, node.fullPath]);
+  }, [loaded, node.fullPath, showHidden]);
 
   // Re-fetch children when the tree refreshes and the directory is open.
+  // This also loads a closed destination folder after it receives a drop.
   useEffect(() => {
-    if (refreshToken !== undefined && open && loaded) {
-      loadChildren(true);
+    if (refreshToken !== undefined && open) {
+      loadChildren(loaded);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshToken]);
+  }, [refreshToken, showHidden]);
 
   const handleClick = useCallback(() => {
     if (node.isDir) {
@@ -284,10 +246,51 @@ function TreeNode({
     }
   }, [node.isDir, node.fullPath, node.name, loaded, open, loadChildren, onOpenFile, onToggleExpanded]);
 
+  const handleDragStart = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (deleting) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-pi-web-file", node.fullPath);
+    event.dataTransfer.setData("text/plain", node.name);
+    onDragStart(node);
+  }, [deleting, node, onDragStart]);
+
+  const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!node.isDir || deleting) return;
+    const externalFiles = hasExternalFiles(event.dataTransfer);
+    const internalFile = draggedPath || Array.from(event.dataTransfer.types).includes("application/x-pi-web-file");
+    if (!externalFiles && !internalFile) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = externalFiles ? "copy" : "move";
+    onDropTarget(node.fullPath);
+  }, [deleting, draggedPath, node.fullPath, node.isDir, onDropTarget]);
+
+  const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!node.isDir || deleting) return;
+    const files = hasExternalFiles(event.dataTransfer) ? Array.from(event.dataTransfer.files) : [];
+    const sourcePath = draggedPath ?? event.dataTransfer.getData("application/x-pi-web-file");
+    if (files.length === 0 && !sourcePath) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (files.length > 0) onDropFiles(node.fullPath, files);
+    else if (sourcePath !== node.fullPath) onMove(sourcePath, node.fullPath);
+    onDragEnd();
+  }, [deleting, draggedPath, node.fullPath, node.isDir, onDragEnd, onDropFiles, onMove]);
+
   return (
     <div>
       <div
+        draggable={!deleting}
         onClick={handleClick}
+        onDragStart={handleDragStart}
+        onDragEnd={onDragEnd}
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragOver}
+        onDrop={handleDrop}
+        onContextMenu={(event) => onContextMenu(node, event)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -298,8 +301,9 @@ function TreeNode({
           paddingLeft: 8 + depth * 14,
           paddingRight: 8,
           height: 24,
-          cursor: "pointer",
-          background: hovered ? "var(--bg-hover)" : "transparent",
+          cursor: deleting ? "wait" : "pointer",
+          background: dropTarget ? "color-mix(in srgb, var(--accent) 18%, var(--bg-hover))" : hovered ? "var(--bg-hover)" : "transparent",
+          outline: dropTarget ? "1px solid var(--accent)" : "none",
           borderRadius: 4,
           userSelect: "none",
         }}
@@ -339,25 +343,6 @@ function TreeNode({
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#3b82f6" }} />
           </span>
         )}
-        {!hovered && !node.isDir && gitStatus && (
-          <GitStatusBadge status={gitStatus} t={t} />
-        )}
-        {!hovered && containsGitChanges && (
-          <span
-            title={t("files.containsChangedFiles")}
-            aria-label={t("files.containsChangedFiles")}
-            style={{
-              width: 14,
-              height: 14,
-              flexShrink: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#d6a84b" }} />
-          </span>
-        )}
         {loading && (
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" strokeWidth="2" strokeLinecap="round">
             <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4" />
@@ -378,7 +363,6 @@ function TreeNode({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 4,
               padding: "0 8px",
               height: 20,
               background: "var(--bg-panel)",
@@ -391,7 +375,6 @@ function TreeNode({
               whiteSpace: "nowrap",
             }}
           >
-            <MentionIcon />
             {t("files.mention")}
           </button>
         )}
@@ -445,8 +428,17 @@ function TreeNode({
               onToggleExpanded={onToggleExpanded}
               refreshToken={refreshToken}
               highlightedPaths={highlightedPaths}
-              gitStatusByPath={gitStatusByPath}
-              changedDirectoryPaths={changedDirectoryPaths}
+              draggedPath={draggedPath}
+              dropTargetPath={dropTargetPath}
+              deletingPaths={deletingPaths}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+              onDropTarget={onDropTarget}
+              onDropFiles={onDropFiles}
+              onMove={onMove}
+              onDelete={onDelete}
+              onContextMenu={onContextMenu}
+              showHidden={showHidden}
               t={t}
             />
           ))}
@@ -461,63 +453,6 @@ function TreeNode({
   );
 }
 
-type OpenFileOptions = { sourceSessionId?: string | null; modeHint?: "diff" };
-
-type OpenFileHandler = (filePath: string, fileName: string, options?: OpenFileOptions) => void;
-
-function ChangeRow({
-  status,
-  cwd,
-  onOpenFile,
-  t,
-}: {
-  status: GitFileStatus;
-  cwd: string;
-  onOpenFile: OpenFileHandler;
-  t: Translate;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const name = getFileName(status.filePath);
-  const rel = getRelativeFilePath(status.filePath, cwd);
-  return (
-    <div
-      onClick={() => onOpenFile(status.filePath, name, { modeHint: "diff" })}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      title={status.filePath}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        paddingLeft: 10,
-        paddingRight: 8,
-        height: 24,
-        cursor: "pointer",
-        background: hovered ? "var(--bg-hover)" : "transparent",
-        borderRadius: 4,
-        userSelect: "none",
-      }}
-    >
-      <GitStatusBadge status={status} t={t} />
-      <span style={{ flexShrink: 0, display: "flex", alignItems: "center", opacity: 0.85 }}>
-        {getFileIcon(name, 13)}
-      </span>
-      <span
-        style={{
-          fontSize: 12,
-          color: "var(--text)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          flex: 1,
-        }}
-      >
-        {rel}
-      </span>
-    </div>
-  );
-}
-
 export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileExplorer({
   cwd,
   onOpenFile,
@@ -525,8 +460,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   onAtMention,
   onAtMentions,
   onUploadBusyChange,
-  changesCollapsed,
-  onChangesCountChange,
   fileSearchOpen = false,
   onFileSearchOpenChange,
 }, ref) {
@@ -537,13 +470,20 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [treeRefreshKey, setTreeRefreshKey] = useState(0);
   const [highlightedPaths, setHighlightedPaths] = useState<Set<string>>(new Set());
-  const [gitFiles, setGitFiles] = useState<GitFileStatus[]>([]);
-  const [gitLineStats, setGitLineStats] = useState({ additions: 0, deletions: 0 });
   const [uploadPhase, setUploadPhase] = useState<UploadPhase>("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSummary, setUploadSummary] = useState<UploadSummary | null>(null);
   const [pendingConflict, setPendingConflict] = useState<PendingConflict | null>(null);
+  const [draggedPath, setDraggedPath] = useState<string | null>(null);
+  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const [deletingPaths, setDeletingPaths] = useState<Set<string>>(new Set());
+  const [moveBusy, setMoveBusy] = useState(false);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ node: FileNode; x: number; y: number } | null>(null);
+  const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -552,8 +492,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const searchInputRef = useRef<HTMLInputElement>(null);
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const newFolderInputRef = useRef<HTMLInputElement>(null);
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
+  const operationBusy = uploadBusy || moveBusy || creatingFolderBusy || deletingPaths.size > 0;
   const hasSearchQuery = searchQuery.trim().length > 0;
 
   // Reuse the cached, bounded file index used by @ mentions.
@@ -588,6 +530,31 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   useEffect(() => {
     if (fileSearchOpen) searchInputRef.current?.focus();
   }, [fileSearchOpen]);
+
+  useEffect(() => {
+    if (creatingFolder) newFolderInputRef.current?.focus();
+  }, [creatingFolder]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || !event.shiftKey || event.code !== "Period") return;
+      event.preventDefault();
+      setShowHidden((visible) => !visible);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener("mousedown", close);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [contextMenu]);
 
   // Results render as a tree; keep every directory that contains a match
   // expanded, while preserving the user's manual collapses as they type.
@@ -624,26 +591,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     return buildSearchTree(searchPaths).map(toFileNode);
   }, [cwd, searchPaths]);
 
-  const gitStatusByPath = useMemo(() => new Map(
-    gitFiles.map((status) => [normalizeFilePathSlashes(status.filePath), status]),
-  ), [gitFiles]);
-
-  const changedDirectoryPaths = useMemo(() => {
-    const directories = new Set<string>();
-    const normalizedCwd = normalizeFilePathSlashes(cwd).replace(/\/$/, "");
-    for (const status of gitFiles) {
-      let directory = getFileDirectory(normalizeFilePathSlashes(status.filePath));
-      while (directory === normalizedCwd || directory.startsWith(`${normalizedCwd}/`)) {
-        directories.add(directory);
-        if (directory === normalizedCwd) break;
-        const parent = getFileDirectory(directory);
-        if (parent === directory) break;
-        directory = parent;
-      }
-    }
-    return directories;
-  }, [cwd, gitFiles]);
-
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
     setExpandedPaths((prev) => {
       const next = new Set(prev);
@@ -652,19 +599,23 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
   }, []);
 
-  const applyUploadResult = useCallback((data: UploadResponse) => {
+  const applyUploadResult = useCallback((targetDirectory: string, data: UploadResponse) => {
     const uploaded = data.uploaded ?? [];
     const skipped = data.skipped ?? [];
     const errors = data.errors ?? [];
-    setUploadSummary({ uploaded, skipped, errors });
+    setUploadSummary({ targetDirectory, uploaded, skipped, errors });
 
     if (uploaded.length > 0) {
-      setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(cwd, name))));
+      setHighlightedPaths(new Set(uploaded.map((name) => joinFilePath(targetDirectory, name))));
+      if (targetDirectory !== cwd) {
+        setExpandedPaths((previous) => new Set(previous).add(targetDirectory));
+      }
       setTreeRefreshKey((key) => key + 1);
     }
   }, [cwd]);
 
   const performUpload = useCallback(async (
+    targetDirectory: string,
     files: File[],
     strategy: UploadConflictStrategy,
   ) => {
@@ -674,9 +625,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setUploadPhase("uploading");
 
     try {
-      const { status, data } = await uploadFiles(cwd, files, strategy, setUploadProgress);
+      const { status, data } = await uploadFiles(targetDirectory, files, strategy, setUploadProgress);
       if (status === 409 && data.conflicts?.length) {
         setPendingConflict({
+          targetDirectory,
           files,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
@@ -687,16 +639,16 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         throw new Error(data.error ?? `Upload failed (HTTP ${status})`);
       }
       setUploadProgress(100);
-      applyUploadResult(data);
+      applyUploadResult(targetDirectory, data);
     } catch (uploadFailure) {
       setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
-  }, [applyUploadResult, cwd]);
+  }, [applyUploadResult]);
 
-  const prepareUpload = useCallback(async (files: File[]) => {
-    if (files.length === 0 || uploadBusy) return;
+  const prepareUpload = useCallback(async (targetDirectory: string, files: File[]) => {
+    if (files.length === 0 || operationBusy) return;
     setUploadSummary(null);
     setHighlightedPaths(new Set());
     setPendingConflict(null);
@@ -706,7 +658,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
     try {
       const res = await fetch(
-        `/api/files/${encodeFilePathForApi(cwd)}?type=upload-check`,
+        `/api/files/${encodeFilePathForApi(targetDirectory)}?type=upload-check`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -718,6 +670,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
 
       if (data.conflicts?.length) {
         setPendingConflict({
+          targetDirectory,
           files,
           conflicts: data.conflicts,
           nonReplaceable: data.nonReplaceable ?? [],
@@ -725,29 +678,35 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         return;
       }
 
-      await performUpload(files, "error");
+      await performUpload(targetDirectory, files, "error");
     } catch (uploadFailure) {
       setUploadError(uploadFailure instanceof Error ? uploadFailure.message : String(uploadFailure));
     } finally {
       setUploadPhase("idle");
     }
-  }, [cwd, performUpload, uploadBusy]);
+  }, [operationBusy, performUpload]);
 
   const handleUploadInput = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    void prepareUpload(files);
-  }, [prepareUpload]);
+    void prepareUpload(cwd, files);
+  }, [cwd, prepareUpload]);
 
   useImperativeHandle(ref, () => ({
     openUploadPicker() {
-      if (!uploadBusy) uploadInputRef.current?.click();
+      if (!operationBusy) uploadInputRef.current?.click();
     },
-  }), [uploadBusy]);
+    startCreateFolder() {
+      if (!operationBusy) {
+        setNewFolderName("");
+        setCreatingFolder(true);
+      }
+    },
+  }), [operationBusy]);
 
   useEffect(() => {
-    onUploadBusyChange?.(uploadBusy);
-  }, [onUploadBusyChange, uploadBusy]);
+    onUploadBusyChange?.(operationBusy);
+  }, [onUploadBusyChange, operationBusy]);
 
   useEffect(() => () => onUploadBusyChange?.(false), [onUploadBusyChange]);
 
@@ -767,49 +726,184 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
-    fetchEntries(cwd)
+    fetchEntries(cwd, showHidden)
       .then((entries) => { if (!cancelled) setRoots(entries); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchGitStatus(cwd)
-      .then((status) => {
-        if (!cancelled) {
-          setGitFiles(status.isGitRepository ? status.files : []);
-          setGitLineStats(status.isGitRepository
-            ? { additions: status.additions, deletions: status.deletions }
-            : { additions: 0, deletions: 0 });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setGitFiles([]);
-          setGitLineStats({ additions: 0, deletions: 0 });
-        }
-      });
-    return () => { cancelled = true; };
-  }, [cwd, refreshKey, treeRefreshKey]);
-
-  useEffect(() => {
-    onChangesCountChange?.(gitFiles.length);
-  }, [gitFiles, onChangesCountChange]);
+  }, [cwd, refreshKey, showHidden, treeRefreshKey]);
 
   const showUploadFeedback = uploadBusy || pendingConflict !== null || uploadError !== null || uploadSummary !== null;
 
   const addUploadedFilesToChat = useCallback(() => {
     if (!uploadSummary || uploadSummary.uploaded.length === 0) return;
     onAtMentions?.(
-      uploadSummary.uploaded.map((name) => getRelativeFilePath(joinFilePath(cwd, name), cwd)),
+      uploadSummary.uploaded.map((name) => getRelativeFilePath(joinFilePath(uploadSummary.targetDirectory, name), cwd)),
     );
   }, [cwd, onAtMentions, uploadSummary]);
 
+  const clearDragState = useCallback(() => {
+    setDraggedPath(null);
+    setDropTargetPath(null);
+  }, []);
+
+  const handleMove = useCallback(async (sourcePath: string, targetDirectory: string) => {
+    if (operationBusy || sourcePath === targetDirectory) return;
+    setMoveBusy(true);
+    setUploadError(null);
+    try {
+      const response = await fetch(`/api/files/${encodeFilePathForApi(sourcePath)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ destinationDirectory: targetDirectory }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? `Move failed (HTTP ${response.status})`);
+      setExpandedPaths((previous) => new Set(previous).add(targetDirectory));
+      setTreeRefreshKey((key) => key + 1);
+    } catch (moveFailure) {
+      setUploadError(moveFailure instanceof Error ? moveFailure.message : String(moveFailure));
+    } finally {
+      setMoveBusy(false);
+    }
+  }, [operationBusy]);
+
+  const handleDelete = useCallback(async (node: FileNode) => {
+    if (operationBusy || !window.confirm(t("files.deleteConfirm", { name: node.name }))) return;
+    setDeletingPaths((previous) => new Set(previous).add(node.fullPath));
+    setUploadError(null);
+    try {
+      const response = await fetch(`/api/files/${encodeFilePathForApi(node.fullPath)}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? `Delete failed (HTTP ${response.status})`);
+      setHighlightedPaths((previous) => {
+        const next = new Set(previous);
+        next.delete(node.fullPath);
+        return next;
+      });
+      setTreeRefreshKey((key) => key + 1);
+    } catch (deleteFailure) {
+      setUploadError(deleteFailure instanceof Error ? deleteFailure.message : String(deleteFailure));
+    } finally {
+      setDeletingPaths((previous) => {
+        const next = new Set(previous);
+        next.delete(node.fullPath);
+        return next;
+      });
+    }
+  }, [operationBusy, t]);
+
+  const createFolder = useCallback(async () => {
+    const name = newFolderName.trim();
+    if (!name || operationBusy) return;
+    setCreatingFolderBusy(true);
+    setUploadError(null);
+    try {
+      const response = await fetch(`/api/files/${encodeFilePathForApi(cwd)}?type=mkdir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? `Create folder failed (HTTP ${response.status})`);
+      setCreatingFolder(false);
+      setNewFolderName("");
+      setTreeRefreshKey((key) => key + 1);
+    } catch (createFailure) {
+      setUploadError(createFailure instanceof Error ? createFailure.message : String(createFailure));
+    } finally {
+      setCreatingFolderBusy(false);
+    }
+  }, [cwd, newFolderName, operationBusy]);
+
+  const renameNode = useCallback(async (node: FileNode) => {
+    const name = window.prompt(t("files.renamePrompt"), node.name)?.trim();
+    if (!name || name === node.name || operationBusy) return;
+    setMoveBusy(true);
+    setUploadError(null);
+    try {
+      const response = await fetch(`/api/files/${encodeFilePathForApi(node.fullPath)}?type=rename`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? `Rename failed (HTTP ${response.status})`);
+      setTreeRefreshKey((key) => key + 1);
+    } catch (renameFailure) {
+      setUploadError(renameFailure instanceof Error ? renameFailure.message : String(renameFailure));
+    } finally {
+      setMoveBusy(false);
+    }
+  }, [operationBusy, t]);
+
+  const handleContextMenu = useCallback((node: FileNode, event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setContextMenu({ node, x: event.clientX, y: event.clientY });
+  }, []);
+
+  const handleRootDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const externalFiles = hasExternalFiles(event.dataTransfer);
+    const internalFile = draggedPath || Array.from(event.dataTransfer.types).includes("application/x-pi-web-file");
+    if ((!externalFiles && !internalFile) || operationBusy) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = externalFiles ? "copy" : "move";
+    setDropTargetPath(cwd);
+  }, [cwd, draggedPath, operationBusy]);
+
+  const handleRootDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    const files = hasExternalFiles(event.dataTransfer) ? Array.from(event.dataTransfer.files) : [];
+    const sourcePath = draggedPath ?? event.dataTransfer.getData("application/x-pi-web-file");
+    if ((files.length === 0 && !sourcePath) || operationBusy) return;
+    event.preventDefault();
+    clearDragState();
+    if (files.length > 0) void prepareUpload(cwd, files);
+    else if (sourcePath) void handleMove(sourcePath, cwd);
+  }, [clearDragState, cwd, draggedPath, handleMove, operationBusy, prepareUpload]);
+
   return (
-    <div style={{ minHeight: "100%" }}>
+    <div
+      onDragOver={handleRootDragOver}
+      onDrop={handleRootDrop}
+      onDragEnd={clearDragState}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) clearDragState();
+      }}
+      style={{
+        minHeight: "100%",
+        background: dropTargetPath === cwd ? "color-mix(in srgb, var(--accent) 8%, transparent)" : undefined,
+        outline: dropTargetPath === cwd ? "1px dashed var(--accent)" : undefined,
+        outlineOffset: -1,
+      }}
+    >
       <input ref={uploadInputRef} type="file" multiple hidden onChange={handleUploadInput} />
+      {creatingFolder && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createFolder();
+          }}
+          style={{ display: "flex", alignItems: "center", gap: 5, height: 28, padding: "0 10px", borderBottom: "1px solid var(--border)" }}
+        >
+          <FolderIcon size={14} open />
+          <input
+            ref={newFolderInputRef}
+            value={newFolderName}
+            onChange={(event) => setNewFolderName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setCreatingFolder(false);
+                setNewFolderName("");
+              }
+            }}
+            placeholder={t("files.newFolderName")}
+            aria-label={t("files.newFolderName")}
+            disabled={creatingFolderBusy}
+            style={{ minWidth: 0, flex: 1, height: 20, padding: "0 4px", border: "1px solid var(--accent)", borderRadius: 3, outline: "none", background: "var(--bg)", color: "var(--text)", fontFamily: "var(--font-mono)", fontSize: 12 }}
+          />
+        </form>
+      )}
       {showUploadFeedback && (
         <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
         {uploadBusy && (
@@ -847,10 +941,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               </div>
             )}
             <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.targetDirectory, pendingConflict.files, "overwrite")} style={{ height: 22, padding: "0 7px", border: "1px solid #ef4444", borderRadius: 4, background: "transparent", color: "#ef4444", cursor: "pointer", fontSize: 10 }}>
                 {t("files.replace")}
               </button>
-              <button type="button" onClick={() => void performUpload(pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
+              <button type="button" onClick={() => void performUpload(pendingConflict.targetDirectory, pendingConflict.files, "skip")} style={{ height: 22, padding: "0 7px", border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--text)", cursor: "pointer", fontSize: 10 }}>
                 {t("files.skipExisting")}
               </button>
               <button type="button" onClick={() => setPendingConflict(null)} style={{ height: 22, padding: "0 7px", border: "none", borderRadius: 4, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 10 }}>
@@ -907,7 +1001,6 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                   aria-label={uploadSummary.uploaded.length === 1 ? t("files.addUploadedFile") : t("files.addAllUploadedFiles")}
                   style={{ height: 22, padding: "0 7px", display: "flex", alignItems: "center", justifyContent: "center", gap: 4, flexShrink: 0, border: "1px solid var(--border)", borderRadius: 4, background: "var(--bg-panel)", color: "var(--accent)", cursor: "pointer", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" }}
                 >
-                  <MentionIcon />
                   {t("files.mention")}
                 </button>
               )}
@@ -983,8 +1076,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                       });
                     }}
                     highlightedPaths={highlightedPaths}
-                    gitStatusByPath={gitStatusByPath}
-                    changedDirectoryPaths={changedDirectoryPaths}
+                    draggedPath={draggedPath}
+                    dropTargetPath={dropTargetPath}
+                    deletingPaths={deletingPaths}
+                    onDragStart={(node) => setDraggedPath(node.fullPath)}
+                    onDragEnd={clearDragState}
+                    onDropTarget={setDropTargetPath}
+                    onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
+                    onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
+                    onDelete={(node) => void handleDelete(node)}
+                    onContextMenu={handleContextMenu}
+                    showHidden={showHidden}
                     t={t}
                   />
                 ))}
@@ -995,29 +1097,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       </div>
       )}
 
-      {!changesCollapsed && gitFiles.length > 0 && (
-        <div style={{ padding: "0 4px 2px" }}>
-          <div
-            aria-label={t("files.changeStats", {
-              count: gitFiles.length,
-              additions: gitLineStats.additions,
-              deletions: gitLineStats.deletions,
-            })}
-            style={{ display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 10px", fontSize: 12 }}
-          >
-            <span style={{ color: "var(--text-dim)" }}>
-              {t("files.changedCount", { count: gitFiles.length })}
-            </span>
-            <span style={{ color: GIT_STATUS_COLORS.added, fontFamily: "var(--font-mono)" }}>+{gitLineStats.additions}</span>
-            <span style={{ color: GIT_STATUS_COLORS.deleted, fontFamily: "var(--font-mono)" }}>-{gitLineStats.deletions}</span>
-          </div>
-          {gitFiles.map((status) => (
-            <ChangeRow key={status.filePath} status={status} cwd={cwd} onOpenFile={onOpenFile} t={t} />
-          ))}
-        </div>
-      )}
-
-      {(changesCollapsed || gitFiles.length === 0) && (!fileSearchOpen || !hasSearchQuery) && (
+      {(!fileSearchOpen || !hasSearchQuery) && (
         <div style={{ padding: "2px 4px" }}>
           {loading ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>Loading files...</div>
@@ -1036,8 +1116,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                 onToggleExpanded={handleToggleExpanded}
                 refreshToken={refreshToken}
                 highlightedPaths={highlightedPaths}
-                gitStatusByPath={gitStatusByPath}
-                changedDirectoryPaths={changedDirectoryPaths}
+                draggedPath={draggedPath}
+                dropTargetPath={dropTargetPath}
+                deletingPaths={deletingPaths}
+                onDragStart={(node) => setDraggedPath(node.fullPath)}
+                onDragEnd={clearDragState}
+                onDropTarget={setDropTargetPath}
+                onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
+                onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
+                onDelete={(node) => void handleDelete(node)}
+                onContextMenu={handleContextMenu}
+                showHidden={showHidden}
                 t={t}
               />
             ))
@@ -1047,6 +1136,22 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
               {t("files.noFiles")}
             </div>
           )}
+        </div>
+      )}
+      {contextMenu && (
+        <div
+          role="menu"
+          style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y, zIndex: 100, minWidth: 132, padding: 4, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-panel)", boxShadow: "0 6px 18px rgba(0, 0, 0, 0.2)" }}
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void renameNode(contextMenu.node); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "var(--text)", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 20 9-9-3-3-9 9-1 4 4-1Z" /><path d="m15 8 3 3" /></svg>
+            {t("files.edit")}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void handleDelete(contextMenu.node); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m6 6 1 14h10l1-14" /><path d="M10 10v6M14 10v6" /></svg>
+            {t("files.delete")}
+          </button>
         </div>
       )}
     </div>

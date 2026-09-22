@@ -28,10 +28,12 @@ import { parseFormDataWithinLimit, RequestBodyTooLargeError } from "@/lib/bounde
 import { filePathFromApiSegments, samePath } from "@/lib/paths";
 import { readTextPreviewChunk } from "@/lib/text-preview";
 
+// Build artefacts and dependency directories stay out of Explorer even when
+// hidden files are revealed. Dot-prefixed project files are filtered separately
+// so the user can toggle them with Cmd+Shift+Period.
 const IGNORED_NAMES = new Set([
-  "node_modules", ".git", ".next", "dist", "build", "__pycache__",
-  ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
-  "target", "vendor", ".DS_Store", ".git",
+  "node_modules", "dist", "build", "__pycache__", "coverage",
+  "target", "vendor", ".DS_Store",
 ]);
 
 const IGNORED_SUFFIXES = [".pyc"];
@@ -115,6 +117,29 @@ function parseUploadFileNames(value: unknown): string[] | null {
   return value;
 }
 
+async function getOperationSource(segments: string[]): Promise<
+  { source: string; stat: fs.Stats } | { response: NextResponse }
+> {
+  const source = filePathFromApiSegments(segments);
+  const allowedRoots = await getAllowedFileRoots();
+  if (!isFilePathAllowed(source, allowedRoots) || !isExistingFilePathAllowed(source, allowedRoots)) {
+    return { response: NextResponse.json({ error: "Access denied" }, { status: 403 }) };
+  }
+  if ([...allowedRoots].some((root) => samePath(source, root))) {
+    return { response: NextResponse.json({ error: "Cannot modify a workspace root" }, { status: 400 }) };
+  }
+
+  try {
+    return { source, stat: fs.lstatSync(source) };
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { response: NextResponse.json({ error: "Not found" }, { status: 404 }) };
+    }
+    throw error;
+  }
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -141,6 +166,25 @@ export async function POST(
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
       return NextResponse.json(inspectUploadTargets(directory, fileNames));
+    }
+
+    if (type === "mkdir") {
+      const body = await request.json().catch(() => null) as { name?: unknown } | null;
+      if (!body || typeof body.name !== "string") {
+        return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+      }
+      const validationError = validateUploadFileNames([body.name]);
+      if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+      const destination = path.join(directory, body.name);
+      try {
+        fs.mkdirSync(destination);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          return NextResponse.json({ error: "A file or folder with that name already exists" }, { status: 409 });
+        }
+        throw error;
+      }
+      return NextResponse.json({ created: body.name }, { status: 201 });
     }
 
     if (type !== "upload") {
@@ -229,6 +273,108 @@ export async function POST(
       { uploaded, skipped, errors },
       { status: errors.length > 0 ? 207 : 200 },
     );
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const { path: segments } = await params;
+    const operationSource = await getOperationSource(segments);
+    if ("response" in operationSource) return operationSource.response;
+    const { source, stat } = operationSource;
+    fs.rmSync(source, { recursive: stat.isDirectory(), force: false, maxRetries: 2, retryDelay: 100 });
+    return NextResponse.json({ deleted: true });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  if (!isApiRequestAllowed(request)) {
+    return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  try {
+    const type = request.nextUrl.searchParams.get("type") ?? "move";
+    const body = await request.json().catch(() => null) as { destinationDirectory?: unknown; name?: unknown } | null;
+    if (!body || (type !== "move" && type !== "rename")) {
+      return NextResponse.json({ error: "Invalid file operation" }, { status: 400 });
+    }
+
+    const { path: segments } = await params;
+    const operationSource = await getOperationSource(segments);
+    if ("response" in operationSource) return operationSource.response;
+    const { source, stat } = operationSource;
+
+    if (type === "rename") {
+      if (typeof body.name !== "string") {
+        return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+      }
+      const validationError = validateUploadFileNames([body.name]);
+      if (validationError) return NextResponse.json({ error: validationError }, { status: 400 });
+      const destination = path.join(path.dirname(source), body.name);
+      if (samePath(source, destination)) return NextResponse.json({ renamed: false, path: source });
+      try {
+        fs.lstatSync(destination);
+        return NextResponse.json({ error: "A file or folder with that name already exists" }, { status: 409 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+      fs.renameSync(source, destination);
+      return NextResponse.json({ renamed: true, path: destination });
+    }
+
+    if (typeof body.destinationDirectory !== "string" || !body.destinationDirectory) {
+      return NextResponse.json({ error: "destinationDirectory must be a non-empty string" }, { status: 400 });
+    }
+    // Reuse the upload target validation: the directory must exist, be in an
+    // allowed root, and must not be a symlink that points outside one.
+    // Keep the user-supplied absolute path as one segment before decoding so
+    // Windows drive paths and UNC roots retain their leading separators.
+    const uploadDirectory = await getUploadDirectory([body.destinationDirectory]);
+    if ("response" in uploadDirectory) return uploadDirectory.response;
+    const destinationDirectory = uploadDirectory.directory;
+    const destination = path.join(destinationDirectory, path.basename(source));
+
+    if (samePath(path.dirname(source), destinationDirectory)) {
+      return NextResponse.json({ moved: false, path: source });
+    }
+    if (stat.isDirectory() && isFilePathAllowed(destinationDirectory, new Set([source]))) {
+      return NextResponse.json({ error: "Cannot move a folder into itself" }, { status: 400 });
+    }
+    try {
+      fs.lstatSync(destination);
+      return NextResponse.json({ error: "A file or folder with that name already exists" }, { status: 409 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+
+    try {
+      fs.renameSync(source, destination);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+      fs.cpSync(source, destination, {
+        recursive: stat.isDirectory(),
+        errorOnExist: true,
+        force: false,
+        verbatimSymlinks: true,
+      });
+      fs.rmSync(source, { recursive: stat.isDirectory(), force: false, maxRetries: 2, retryDelay: 100 });
+    }
+
+    return NextResponse.json({ moved: true, path: destination });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
@@ -631,9 +777,10 @@ export async function GET(
 
     // Avoid per-entry stat calls for normal files and directories. Symlinks and
     // filesystems without directory type information use the stat fallback.
+    const showHidden = request.nextUrl.searchParams.get("showHidden") === "1";
     const dirents = fs.readdirSync(filePath, { withFileTypes: true });
     const entries = dirents
-      .filter((d) => !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
+      .filter((d) => (showHidden || !d.name.startsWith(".")) && !IGNORED_NAMES.has(d.name) && !IGNORED_SUFFIXES.some((s) => d.name.endsWith(s)))
       .flatMap((d) => {
         const isDir = resolveDirentIsDirectory(d, path.join(filePath, d.name));
         return isDir === null

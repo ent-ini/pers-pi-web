@@ -330,18 +330,14 @@ export interface SessionInfo {
         description: string;
         status: SubagentSessionStatus;
       };
-  /** Main repo root shared by all worktrees of this cwd (cwd itself for non-git dirs).
-   *  Always set by the server; optional because the client builds transient
-   *  SessionInfo objects before the first refresh. Fall back to cwd. */
+  /** Directory associated with this session. Always set by the server; optional
+   *  because the client builds transient SessionInfo objects before the first
+   *  refresh. Fall back to cwd. */
   projectRoot?: string;
   /** Stable server-computed project identity for grouping and comparison.
    *  Unlike projectRoot, Windows keys are case- and separator-insensitive.
    *  Internal only: use projectRoot/cwd for display and filesystem operations. */
   projectKey?: string;
-  /** Current git branch for any git repo (undefined for non-git or detached HEAD) */
-  branch?: string;
-  /** True when cwd is a linked git worktree (not the main checkout) */
-  isWorktree?: boolean;
   /** True while the runtime session exists only in memory and its JSONL file
    *  has not been created yet. Disk-backed actions must wait until this clears. */
   transient?: boolean;

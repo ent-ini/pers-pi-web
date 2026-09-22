@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { execFile } from "child_process";
-import { promisify } from "util";
 import fs from "fs";
 import path from "path";
 import {
@@ -11,10 +9,7 @@ import {
 } from "@/lib/file-access";
 import { buildEntriesFromFiles, filterFileEntries, type FileIndexEntry } from "@/lib/file-fuzzy";
 
-const execFileAsync = promisify(execFile);
-
-// Same skip lists as /api/files — only used for the non-git readdir fallback.
-// Git-tracked repos rely on .gitignore instead (matches the TUI's fd behavior).
+// Same skip lists as /api/files.
 const IGNORED_NAMES = new Set([
   "node_modules", ".git", ".next", "dist", "build", "__pycache__",
   ".turbo", ".cache", "coverage", ".pytest_cache", ".mypy_cache",
@@ -25,8 +20,7 @@ const IGNORED_SUFFIXES = [".pyc"];
 
 /** Cap on the plain (no-query) response used as the client-side index */
 const MAX_FILES = 5000;
-/** Hard caps on the full in-memory listing that ?q= searches against */
-const GIT_HARD_CAP = 200_000;
+/** Hard cap on the full in-memory listing that ?q= searches against */
 const WALK_HARD_CAP = 50_000;
 const MAX_WALK_DEPTH = 8;
 const MAX_QUERY_LENGTH = 500;
@@ -57,24 +51,6 @@ declare global {
 function getIndexCache(): Map<string, CacheEntry> {
   if (!globalThis.__piFileIndexCache) globalThis.__piFileIndexCache = new Map();
   return globalThis.__piFileIndexCache;
-}
-
-async function listWithGit(cwd: string): Promise<FileListing | null> {
-  try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
-      { timeout: 10_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, LC_ALL: "C" } },
-    );
-    const all = stdout.split("\0").filter(Boolean);
-    if (all.length > GIT_HARD_CAP) {
-      return { files: all.slice(0, GIT_HARD_CAP), hardTruncated: true };
-    }
-    return { files: all, hardTruncated: false };
-  } catch {
-    // Not a git repo (or git unavailable) — caller falls back to readdir walk.
-    return null;
-  }
 }
 
 function listWithWalk(cwd: string): FileListing {
@@ -144,7 +120,7 @@ export async function GET(req: NextRequest) {
     const now = Date.now();
     let cached = cache.get(cwd);
     if (!cached || cached.expiresAt <= now) {
-      const listing = (await listWithGit(cwd)) ?? listWithWalk(cwd);
+      const listing = listWithWalk(cwd);
       for (const [key, entry] of cache) {
         if (entry.expiresAt <= now) cache.delete(key);
       }

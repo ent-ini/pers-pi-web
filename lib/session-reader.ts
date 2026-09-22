@@ -11,7 +11,6 @@ import { getThinkingPreview } from "./message-display";
 import { projectIdentityKey } from "./project-identity";
 import { sessionPathKey } from "./session-path";
 import { MAX_TOOL_RESULT_IMAGE_BYTES, TOOL_RESULT_IMAGE_MIMES } from "./tool-result-images";
-import { resolveProject, type ProjectInfo } from "./worktree";
 import { readSubagentRun, SUBAGENT_META_TYPE } from "./subagents";
 import { listSessionsIncremental } from "./session-list-scanner";
 
@@ -153,23 +152,11 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
 }
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
-  const uniqueCwds = [...new Set(sessions.map((s) => s.cwd).filter(Boolean))];
-  const projectByCwd = new Map<string, ProjectInfo>();
-  await Promise.all(uniqueCwds.map(async (cwd) => {
-    projectByCwd.set(cwd, await resolveProject(cwd));
+  return sessions.map((session) => ({
+    ...session,
+    projectRoot: session.cwd,
+    projectKey: projectIdentityKey(session.cwd),
   }));
-
-  return sessions.map((session) => {
-    const project = session.cwd ? projectByCwd.get(session.cwd) : undefined;
-    const projectRoot = project?.projectRoot ?? session.cwd;
-    return {
-      ...session,
-      projectRoot,
-      projectKey: projectIdentityKey(projectRoot),
-      ...(project?.branch ? { branch: project.branch } : {}),
-      ...(project?.isWorktree ? { isWorktree: true } : {}),
-    };
-  });
 }
 
 export function mergeSessionLists(

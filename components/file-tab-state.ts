@@ -4,7 +4,6 @@ import type { Tab } from "./TabBar";
 interface OpenFileTabInput {
   fileName: string;
   filePath: string;
-  modeHint?: "diff";
   sourceSessionId?: string | null;
   tabId: string;
 }
@@ -17,41 +16,19 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       label: input.fileName,
       filePath: input.filePath,
       sourceSessionId: input.sourceSessionId,
-      initialDisplayMode: input.modeHint,
-      viewerState: input.modeHint ? {
-        displayMode: input.modeHint,
-        wrapLines: false,
-        scrollTop: 0,
-        scrollLeft: 0,
-      } : undefined,
       viewerRevision: 0,
     }];
   }
 
-  const sourceChanged = Boolean(
-    input.sourceSessionId && existing.sourceSessionId !== input.sourceSessionId,
+  if (!input.sourceSessionId || existing.sourceSessionId === input.sourceSessionId) return tabs;
+  return tabs.map((tab) => tab.id === input.tabId
+    ? {
+        ...tab,
+        sourceSessionId: input.sourceSessionId,
+        viewerRevision: (tab.viewerRevision ?? 0) + 1,
+      }
+    : tab,
   );
-  const sourceUnchanged = !sourceChanged;
-  if (sourceUnchanged && !input.modeHint) return tabs;
-
-  return tabs.map((tab) => {
-    if (tab.id !== input.tabId) return tab;
-    const next: Tab = { ...tab };
-    if (sourceChanged) next.sourceSessionId = input.sourceSessionId;
-    if (input.modeHint) {
-      next.initialDisplayMode = input.modeHint;
-      next.viewerState = {
-        displayMode: input.modeHint,
-        wrapLines: tab.viewerState?.wrapLines ?? false,
-        scrollTop: 0,
-        scrollLeft: 0,
-      };
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
-    } else if (sourceChanged) {
-      next.viewerRevision = (tab.viewerRevision ?? 0) + 1;
-    }
-    return next;
-  });
 }
 
 export function saveFileViewerState(
