@@ -3,7 +3,7 @@
 ## Quick Start
 
 ```bash
-npm run dev   # port 30141
+npm run dev   # binds 0.0.0.0:30141
 ```
 
 Typecheck: `node_modules/.bin/tsc --noEmit`  
