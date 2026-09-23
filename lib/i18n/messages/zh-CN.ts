@@ -267,6 +267,7 @@ export const zhCNLocale: LocalePlugin = {
     "files.download": "下载文件",
     "files.delete": "删除",
     "files.deleteConfirm": "删除“{name}”？此操作无法撤销。",
+    "files.deleteManyConfirm": "删除选中的 {count} 项？此操作无法撤销。",
     "files.edit": "重命名",
     "files.pin": "固定",
     "files.unpin": "取消固定",

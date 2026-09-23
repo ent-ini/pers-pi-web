@@ -267,6 +267,7 @@ export const zhTWLocale: LocalePlugin = {
     "files.download": "下載檔案",
     "files.delete": "刪除",
     "files.deleteConfirm": "刪除「{name}」？此操作無法復原。",
+    "files.deleteManyConfirm": "刪除選取的 {count} 個項目？此操作無法復原。",
     "files.edit": "重新命名",
     "files.pin": "釘選",
     "files.unpin": "取消釘選",

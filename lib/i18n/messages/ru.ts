@@ -267,6 +267,7 @@ export const ruLocale: LocalePlugin = {
     "files.download": "Скачать файл",
     "files.delete": "Удалить",
     "files.deleteConfirm": "Удалить «{name}»? Это действие необратимо.",
+    "files.deleteManyConfirm": "Удалить {count} выбранных элементов? Это действие необратимо.",
     "files.edit": "Переименовать",
     "files.pin": "Закрепить",
     "files.unpin": "Открепить",

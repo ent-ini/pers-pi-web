@@ -267,6 +267,7 @@ export const enLocale: LocalePlugin = {
     "files.download": "Download file",
     "files.delete": "Delete",
     "files.deleteConfirm": "Delete \"{name}\"? This cannot be undone.",
+    "files.deleteManyConfirm": "Delete {count} selected items? This cannot be undone.",
     "files.edit": "Rename",
     "files.pin": "Pin",
     "files.unpin": "Unpin",
