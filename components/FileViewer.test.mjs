@@ -64,3 +64,8 @@ test("lightweight source rows are skipped for highlighted and preview views", ()
   }
   assert.equal(render(large, "source", true)[0].props.children[1].props.style.whiteSpace, "pre-wrap");
 });
+
+test("markdown preview links carry PDF page fragments", () => {
+  assert.match(source, /parsePdfPageFragment/);
+  assert.match(source, /onOpenFile\(linkedFile, parsePdfPageFragment\(href\) \?\? undefined\)/);
+});
