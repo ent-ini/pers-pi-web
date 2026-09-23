@@ -22,11 +22,10 @@ function playTone(ctx: AudioContext) {
 }
 
 export function useAudio() {
-  const [enabled, setEnabled] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    const stored = localStorage.getItem("pi-sound-enabled");
-    return stored === null ? true : stored === "true";
-  });
+  // Completion sounds are currently hidden from the UI. Keep the audio
+  // implementation and toggle available for a future setting, but start every
+  // browser session muted (including sessions with an old saved preference).
+  const [enabled, setEnabled] = useState<boolean>(false);
 
   const enabledRef = useRef(enabled);
   useEffect(() => { enabledRef.current = enabled; }, [enabled]);

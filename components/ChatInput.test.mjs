@@ -170,6 +170,16 @@ test("shows one icon-only steering button while the agent is running", () => {
   assert.doesNotMatch(html, /Follow-up|Queue this message/);
 });
 
+test("hides the completion-sound control even when its legacy callback is supplied", () => {
+  const html = renderToStaticMarkup(
+    React.createElement(I18nProvider, { initialLocale: "en" }, React.createElement(ChatInput, {
+      onSend() {}, onAbort() {}, isStreaming: false, soundEnabled: true, onSoundToggle() {},
+    })),
+  );
+
+  assert.doesNotMatch(html, /Disable completion sound|Enable completion sound/);
+});
+
 test("renders the upstream model error", () => {
   const html = renderToStaticMarkup(
     React.createElement(
