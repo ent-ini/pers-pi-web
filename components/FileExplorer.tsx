@@ -159,6 +159,10 @@ function DismissButton({ onClick, title }: { onClick: () => void; title: string 
   );
 }
 
+function MentionIcon() {
+  return <span aria-hidden="true">@</span>;
+}
+
 function TreeNode({
   node,
   depth,
@@ -179,6 +183,12 @@ function TreeNode({
   onMove,
   onDelete,
   onContextMenu,
+  isPinned = false,
+  pinnedDraggedPath = null,
+  pinnedDropTargetPath = null,
+  onPinnedDragStart,
+  onPinnedDropTarget,
+  onPinnedDrop,
   showHidden,
   t,
 }: {
@@ -199,8 +209,14 @@ function TreeNode({
   onDropTarget: (targetPath: string) => void;
   onDropFiles: (targetDirectory: string, files: File[]) => void;
   onMove: (sourcePath: string, targetDirectory: string) => void;
-  onDelete: (node: FileNode) => void;
-  onContextMenu: (node: FileNode, event: React.MouseEvent<HTMLDivElement>) => void;
+  onDelete: (node: FileNode, depth: number) => void;
+  onContextMenu: (node: FileNode, depth: number, event: React.MouseEvent<HTMLDivElement>) => void;
+  isPinned?: boolean;
+  pinnedDraggedPath?: string | null;
+  pinnedDropTargetPath?: string | null;
+  onPinnedDragStart?: (node: FileNode) => void;
+  onPinnedDropTarget?: (targetPath: string) => void;
+  onPinnedDrop?: (sourcePath: string, targetPath: string, insertAfter: boolean) => void;
   showHidden: boolean;
   t: Translate;
 }) {
@@ -212,6 +228,7 @@ function TreeNode({
   const [hovered, setHovered] = useState(false);
   const deleting = deletingPaths.has(node.fullPath);
   const dropTarget = dropTargetPath === node.fullPath;
+  const pinnedDropTarget = pinnedDropTargetPath === node.fullPath;
 
   const loadChildren = useCallback(async (force = false) => {
     if (loaded && !force) return;
@@ -253,12 +270,23 @@ function TreeNode({
     }
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-pi-web-file", node.fullPath);
+    if (isPinned) event.dataTransfer.setData("application/x-pi-web-pin", node.fullPath);
     event.dataTransfer.setData("text/plain", node.name);
     onDragStart(node);
-  }, [deleting, node, onDragStart]);
+    if (isPinned) onPinnedDragStart?.(node);
+  }, [deleting, isPinned, node, onDragStart, onPinnedDragStart]);
 
   const handleDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!node.isDir || deleting) return;
+    if (deleting) return;
+    const draggedPinPath = pinnedDraggedPath ?? event.dataTransfer.getData("application/x-pi-web-pin");
+    if (isPinned && draggedPinPath && draggedPinPath !== node.fullPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "move";
+      onPinnedDropTarget?.(node.fullPath);
+      return;
+    }
+    if (!node.isDir) return;
     const externalFiles = hasExternalFiles(event.dataTransfer);
     const internalFile = draggedPath || Array.from(event.dataTransfer.types).includes("application/x-pi-web-file");
     if (!externalFiles && !internalFile) return;
@@ -266,10 +294,20 @@ function TreeNode({
     event.stopPropagation();
     event.dataTransfer.dropEffect = externalFiles ? "copy" : "move";
     onDropTarget(node.fullPath);
-  }, [deleting, draggedPath, node.fullPath, node.isDir, onDropTarget]);
+  }, [deleting, draggedPath, isPinned, node.fullPath, node.isDir, onDropTarget, onPinnedDropTarget, pinnedDraggedPath]);
 
   const handleDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
-    if (!node.isDir || deleting) return;
+    if (deleting) return;
+    const pinSourcePath = pinnedDraggedPath ?? event.dataTransfer.getData("application/x-pi-web-pin");
+    if (isPinned && pinSourcePath && pinSourcePath !== node.fullPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      const bounds = event.currentTarget.getBoundingClientRect();
+      onPinnedDrop?.(pinSourcePath, node.fullPath, event.clientY > bounds.top + bounds.height / 2);
+      onDragEnd();
+      return;
+    }
+    if (!node.isDir) return;
     const files = hasExternalFiles(event.dataTransfer) ? Array.from(event.dataTransfer.files) : [];
     const sourcePath = draggedPath ?? event.dataTransfer.getData("application/x-pi-web-file");
     if (files.length === 0 && !sourcePath) return;
@@ -278,7 +316,7 @@ function TreeNode({
     if (files.length > 0) onDropFiles(node.fullPath, files);
     else if (sourcePath !== node.fullPath) onMove(sourcePath, node.fullPath);
     onDragEnd();
-  }, [deleting, draggedPath, node.fullPath, node.isDir, onDragEnd, onDropFiles, onMove]);
+  }, [deleting, draggedPath, isPinned, node.fullPath, node.isDir, onDragEnd, onDropFiles, onMove, onPinnedDrop, pinnedDraggedPath]);
 
   return (
     <div>
@@ -290,7 +328,7 @@ function TreeNode({
         onDragOver={handleDragOver}
         onDragEnter={handleDragOver}
         onDrop={handleDrop}
-        onContextMenu={(event) => onContextMenu(node, event)}
+        onContextMenu={(event) => onContextMenu(node, depth, event)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -301,9 +339,11 @@ function TreeNode({
           paddingLeft: 8 + depth * 14,
           paddingRight: 8,
           height: 24,
-          cursor: deleting ? "wait" : "pointer",
-          background: dropTarget ? "color-mix(in srgb, var(--accent) 18%, var(--bg-hover))" : hovered ? "var(--bg-hover)" : "transparent",
-          outline: dropTarget ? "1px solid var(--accent)" : "none",
+          cursor: deleting ? "wait" : isPinned ? "grab" : "pointer",
+          background: dropTarget || pinnedDropTarget
+            ? "color-mix(in srgb, var(--accent) 18%, var(--bg-hover))"
+            : hovered ? "var(--bg-hover)" : isPinned ? "color-mix(in srgb, var(--accent) 6%, transparent)" : "transparent",
+          outline: dropTarget || pinnedDropTarget ? "1px solid var(--accent)" : "none",
           borderRadius: 4,
           userSelect: "none",
         }}
@@ -321,6 +361,11 @@ function TreeNode({
         <span style={{ flexShrink: 0, display: "flex", alignItems: "center" }}>
           {node.isDir ? <FolderIcon size={14} open={open} /> : getFileIcon(node.name, 14)}
         </span>
+        {isPinned && (
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ flexShrink: 0 }}>
+            <path d="M12 17v5" /><path d="m9 3 6 6" /><path d="m15 3-6 6" /><path d="M5 12h14" /><path d="m8 12 1-3h6l1 3" />
+          </svg>
+        )}
         <span
           style={{
             fontSize: 12,
@@ -375,7 +420,7 @@ function TreeNode({
               whiteSpace: "nowrap",
             }}
           >
-            {t("files.mention")}
+            <MentionIcon />
           </button>
         )}
         {hovered && !node.isDir && (
@@ -482,7 +527,10 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [creatingFolderBusy, setCreatingFolderBusy] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ node: FileNode; x: number; y: number } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ node: FileNode; depth: number; x: number; y: number } | null>(null);
+  const [pinnedNames, setPinnedNames] = useState<string[]>([]);
+  const [pinnedDraggedPath, setPinnedDraggedPath] = useState<string | null>(null);
+  const [pinnedDropTargetPath, setPinnedDropTargetPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
@@ -493,6 +541,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const prevCwdRef = useRef<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const newFolderInputRef = useRef<HTMLInputElement>(null);
+  const pinMutationRef = useRef(Promise.resolve());
   const refreshToken = `${refreshKey ?? 0}:${treeRefreshKey}`;
   const uploadBusy = uploadPhase !== "idle";
   const operationBusy = uploadBusy || moveBusy || creatingFolderBusy || deletingPaths.size > 0;
@@ -556,6 +605,41 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     };
   }, [contextMenu]);
 
+  const persistPinnedNames = useCallback((paths: string[], targetCwd = cwd) => {
+    pinMutationRef.current = pinMutationRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const response = await fetch("/api/file-explorer/pins", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cwd: targetCwd, paths }),
+        });
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        if (!response.ok) throw new Error(data.error ?? `Could not save pinned files (HTTP ${response.status})`);
+      })
+      .catch((pinFailure) => {
+        setUploadError(pinFailure instanceof Error ? pinFailure.message : String(pinFailure));
+      });
+  }, [cwd]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPinnedNames([]);
+    fetch(`/api/file-explorer/pins?cwd=${encodeURIComponent(cwd)}`)
+      .then((response) => response.ok
+        ? response.json() as Promise<{ paths?: unknown }>
+        : Promise.reject(new Error(`Could not load pinned files (HTTP ${response.status})`)))
+      .then((data) => {
+        if (!cancelled && Array.isArray(data.paths) && data.paths.every((name) => typeof name === "string")) {
+          setPinnedNames(data.paths);
+        }
+      })
+      .catch((pinFailure) => {
+        if (!cancelled) setUploadError(pinFailure instanceof Error ? pinFailure.message : String(pinFailure));
+      });
+    return () => { cancelled = true; };
+  }, [cwd]);
+
   // Results render as a tree; keep every directory that contains a match
   // expanded, while preserving the user's manual collapses as they type.
   useEffect(() => {
@@ -590,6 +674,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     });
     return buildSearchTree(searchPaths).map(toFileNode);
   }, [cwd, searchPaths]);
+
+  const pinnedRootNodes = useMemo(() => {
+    const rootsByName = new Map(roots.map((node) => [node.name, node]));
+    return pinnedNames.flatMap((name) => {
+      const node = rootsByName.get(name);
+      return node ? [node] : [];
+    });
+  }, [pinnedNames, roots]);
+  const pinnedRootNames = useMemo(() => new Set(pinnedRootNodes.map((node) => node.name)), [pinnedRootNodes]);
+  const unpinnedRootNodes = useMemo(
+    () => roots.filter((node) => !pinnedRootNames.has(node.name)),
+    [pinnedRootNames, roots],
+  );
 
   const handleToggleExpanded = useCallback((fullPath: string, open: boolean) => {
     setExpandedPaths((prev) => {
@@ -745,7 +842,39 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   const clearDragState = useCallback(() => {
     setDraggedPath(null);
     setDropTargetPath(null);
+    setPinnedDraggedPath(null);
+    setPinnedDropTargetPath(null);
   }, []);
+
+  const savePinnedNames = useCallback((next: string[]) => {
+    setPinnedNames(next);
+    persistPinnedNames(next);
+  }, [persistPinnedNames]);
+
+  const togglePinnedNode = useCallback((node: FileNode) => {
+    const next = pinnedNames.includes(node.name)
+      ? pinnedNames.filter((name) => name !== node.name)
+      : [...pinnedNames, node.name];
+    savePinnedNames(next);
+  }, [pinnedNames, savePinnedNames]);
+
+  const reorderPinnedNodes = useCallback((sourcePath: string, targetPath: string, insertAfter: boolean) => {
+    const sourceName = getRelativeFilePath(sourcePath, cwd);
+    const targetName = getRelativeFilePath(targetPath, cwd);
+    if (
+      sourceName.includes("/")
+      || targetName.includes("/")
+      || sourceName === targetName
+      || !pinnedNames.includes(sourceName)
+      || !pinnedNames.includes(targetName)
+    ) return;
+
+    const next = pinnedNames.filter((name) => name !== sourceName);
+    const targetIndex = next.indexOf(targetName);
+    if (targetIndex < 0) return;
+    next.splice(targetIndex + (insertAfter ? 1 : 0), 0, sourceName);
+    savePinnedNames(next);
+  }, [cwd, pinnedNames, savePinnedNames]);
 
   const handleMove = useCallback(async (sourcePath: string, targetDirectory: string) => {
     if (operationBusy || sourcePath === targetDirectory) return;
@@ -760,15 +889,19 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       const data = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? `Move failed (HTTP ${response.status})`);
       setExpandedPaths((previous) => new Set(previous).add(targetDirectory));
+      const sourceName = getRelativeFilePath(sourcePath, cwd);
+      if (targetDirectory !== cwd && !sourceName.includes("/") && pinnedNames.includes(sourceName)) {
+        savePinnedNames(pinnedNames.filter((name) => name !== sourceName));
+      }
       setTreeRefreshKey((key) => key + 1);
     } catch (moveFailure) {
       setUploadError(moveFailure instanceof Error ? moveFailure.message : String(moveFailure));
     } finally {
       setMoveBusy(false);
     }
-  }, [operationBusy]);
+  }, [cwd, operationBusy, pinnedNames, savePinnedNames]);
 
-  const handleDelete = useCallback(async (node: FileNode) => {
+  const handleDelete = useCallback(async (node: FileNode, depth: number) => {
     if (operationBusy || !window.confirm(t("files.deleteConfirm", { name: node.name }))) return;
     setDeletingPaths((previous) => new Set(previous).add(node.fullPath));
     setUploadError(null);
@@ -781,6 +914,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         next.delete(node.fullPath);
         return next;
       });
+      if (depth === 0 && pinnedNames.includes(node.name)) {
+        savePinnedNames(pinnedNames.filter((name) => name !== node.name));
+      }
       setTreeRefreshKey((key) => key + 1);
     } catch (deleteFailure) {
       setUploadError(deleteFailure instanceof Error ? deleteFailure.message : String(deleteFailure));
@@ -791,7 +927,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
         return next;
       });
     }
-  }, [operationBusy, t]);
+  }, [operationBusy, pinnedNames, savePinnedNames, t]);
 
   const createFolder = useCallback(async () => {
     const name = newFolderName.trim();
@@ -816,7 +952,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     }
   }, [cwd, newFolderName, operationBusy]);
 
-  const renameNode = useCallback(async (node: FileNode) => {
+  const renameNode = useCallback(async (node: FileNode, depth: number) => {
     const name = window.prompt(t("files.renamePrompt"), node.name)?.trim();
     if (!name || name === node.name || operationBusy) return;
     setMoveBusy(true);
@@ -829,18 +965,21 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
       });
       const data = await response.json().catch(() => ({})) as { error?: string };
       if (!response.ok) throw new Error(data.error ?? `Rename failed (HTTP ${response.status})`);
+      if (depth === 0 && pinnedNames.includes(node.name)) {
+        savePinnedNames(pinnedNames.map((pinnedName) => pinnedName === node.name ? name : pinnedName));
+      }
       setTreeRefreshKey((key) => key + 1);
     } catch (renameFailure) {
       setUploadError(renameFailure instanceof Error ? renameFailure.message : String(renameFailure));
     } finally {
       setMoveBusy(false);
     }
-  }, [operationBusy, t]);
+  }, [operationBusy, pinnedNames, savePinnedNames, t]);
 
-  const handleContextMenu = useCallback((node: FileNode, event: React.MouseEvent<HTMLDivElement>) => {
+  const handleContextMenu = useCallback((node: FileNode, depth: number, event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
     event.stopPropagation();
-    setContextMenu({ node, x: event.clientX, y: event.clientY });
+    setContextMenu({ node, depth, x: event.clientX, y: event.clientY });
   }, []);
 
   const handleRootDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -1084,7 +1223,7 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
                     onDropTarget={setDropTargetPath}
                     onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
                     onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
-                    onDelete={(node) => void handleDelete(node)}
+                    onDelete={(node, depth) => void handleDelete(node, depth)}
                     onContextMenu={handleContextMenu}
                     showHidden={showHidden}
                     t={t}
@@ -1104,32 +1243,77 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           ) : error ? (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "#f87171" }}>{error}</div>
           ) : (
-            roots.map((node) => (
-              <TreeNode
-                key={node.fullPath}
-                node={node}
-                depth={0}
-                cwd={cwd}
-                onOpenFile={onOpenFile}
-                onAtMention={onAtMention}
-                expandedPaths={expandedPaths}
-                onToggleExpanded={handleToggleExpanded}
-                refreshToken={refreshToken}
-                highlightedPaths={highlightedPaths}
-                draggedPath={draggedPath}
-                dropTargetPath={dropTargetPath}
-                deletingPaths={deletingPaths}
-                onDragStart={(node) => setDraggedPath(node.fullPath)}
-                onDragEnd={clearDragState}
-                onDropTarget={setDropTargetPath}
-                onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
-                onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
-                onDelete={(node) => void handleDelete(node)}
-                onContextMenu={handleContextMenu}
-                showHidden={showHidden}
-                t={t}
-              />
-            ))
+            <>
+              {pinnedRootNodes.length > 0 && (
+                <div style={{ height: 22, padding: "0 8px", display: "flex", alignItems: "center", gap: 5, color: "var(--text-dim)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 17v5" /><path d="m9 3 6 6" /><path d="m15 3-6 6" /><path d="M5 12h14" /><path d="m8 12 1-3h6l1 3" />
+                  </svg>
+                  {t("files.pinnedSection")}
+                </div>
+              )}
+              {pinnedRootNodes.map((node) => (
+                <TreeNode
+                  key={node.fullPath}
+                  node={node}
+                  depth={0}
+                  cwd={cwd}
+                  onOpenFile={onOpenFile}
+                  onAtMention={onAtMention}
+                  expandedPaths={expandedPaths}
+                  onToggleExpanded={handleToggleExpanded}
+                  refreshToken={refreshToken}
+                  highlightedPaths={highlightedPaths}
+                  draggedPath={draggedPath}
+                  dropTargetPath={dropTargetPath}
+                  deletingPaths={deletingPaths}
+                  onDragStart={(node) => setDraggedPath(node.fullPath)}
+                  onDragEnd={clearDragState}
+                  onDropTarget={setDropTargetPath}
+                  onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
+                  onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
+                  onDelete={(node, depth) => void handleDelete(node, depth)}
+                  onContextMenu={handleContextMenu}
+                  isPinned
+                  pinnedDraggedPath={pinnedDraggedPath}
+                  pinnedDropTargetPath={pinnedDropTargetPath}
+                  onPinnedDragStart={(node) => setPinnedDraggedPath(node.fullPath)}
+                  onPinnedDropTarget={setPinnedDropTargetPath}
+                  onPinnedDrop={reorderPinnedNodes}
+                  showHidden={showHidden}
+                  t={t}
+                />
+              ))}
+              {pinnedRootNodes.length > 0 && unpinnedRootNodes.length > 0 && (
+                <div style={{ height: 1, margin: "4px 4px", background: "var(--border)" }} />
+              )}
+              {unpinnedRootNodes.map((node) => (
+                <TreeNode
+                  key={node.fullPath}
+                  node={node}
+                  depth={0}
+                  cwd={cwd}
+                  onOpenFile={onOpenFile}
+                  onAtMention={onAtMention}
+                  expandedPaths={expandedPaths}
+                  onToggleExpanded={handleToggleExpanded}
+                  refreshToken={refreshToken}
+                  highlightedPaths={highlightedPaths}
+                  draggedPath={draggedPath}
+                  dropTargetPath={dropTargetPath}
+                  deletingPaths={deletingPaths}
+                  onDragStart={(node) => setDraggedPath(node.fullPath)}
+                  onDragEnd={clearDragState}
+                  onDropTarget={setDropTargetPath}
+                  onDropFiles={(targetDirectory, files) => void prepareUpload(targetDirectory, files)}
+                  onMove={(sourcePath, targetDirectory) => void handleMove(sourcePath, targetDirectory)}
+                  onDelete={(node, depth) => void handleDelete(node, depth)}
+                  onContextMenu={handleContextMenu}
+                  showHidden={showHidden}
+                  t={t}
+                />
+              ))}
+            </>
           )}
           {!loading && !error && roots.length === 0 && (
             <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--text-dim)" }}>
@@ -1144,11 +1328,17 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
           style={{ position: "fixed", left: contextMenu.x, top: contextMenu.y, zIndex: 100, minWidth: 132, padding: 4, border: "1px solid var(--border)", borderRadius: 5, background: "var(--bg-panel)", boxShadow: "0 6px 18px rgba(0, 0, 0, 0.2)" }}
           onMouseDown={(event) => event.stopPropagation()}
         >
-          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void renameNode(contextMenu.node); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "var(--text)", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
+          {contextMenu.depth === 0 && (
+            <button type="button" role="menuitem" onClick={() => { togglePinnedNode(contextMenu.node); setContextMenu(null); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "var(--text)", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 17v5" /><path d="m9 3 6 6" /><path d="m15 3-6 6" /><path d="M5 12h14" /><path d="m8 12 1-3h6l1 3" /></svg>
+              {pinnedNames.includes(contextMenu.node.name) ? t("files.unpin") : t("files.pin")}
+            </button>
+          )}
+          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void renameNode(contextMenu.node, contextMenu.depth); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "var(--text)", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 20 9-9-3-3-9 9-1 4 4-1Z" /><path d="m15 8 3 3" /></svg>
             {t("files.edit")}
           </button>
-          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void handleDelete(contextMenu.node); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
+          <button type="button" role="menuitem" onClick={() => { setContextMenu(null); void handleDelete(contextMenu.node, contextMenu.depth); }} style={{ width: "100%", height: 26, display: "flex", alignItems: "center", gap: 7, padding: "0 7px", border: "none", borderRadius: 3, background: "none", color: "#ef4444", cursor: "pointer", fontSize: 11, textAlign: "left" }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="m6 6 1 14h10l1-14" /><path d="M10 10v6M14 10v6" /></svg>
             {t("files.delete")}
           </button>

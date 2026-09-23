@@ -17,6 +17,7 @@ const nextConfig: NextConfig = {
   // (and its sharp/libheif attack surface, see GHSA-2xp9-vwfh-vxw4) is not needed.
   images: { unoptimized: true },
   serverExternalPackages: [
+    "better-sqlite3",
     "node-pty",
     "undici",
     "web-push",
