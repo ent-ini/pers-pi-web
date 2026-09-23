@@ -339,7 +339,7 @@ export const zhTWLocale: LocalePlugin = {
     "chat.noMatchingFiles": "找不到相符的檔案",
     "chat.searchingAll": " · 正在搜尋所有檔案…",
     "chat.indexTruncated": " · 索引已截斷",
-    "chat.steerPlaceholder": "立即引導 / 將後續訊息排入佇列...",
+    "chat.steerPlaceholder": "中斷目前回覆…",
     "chat.agentPlaceholder": "Agent 執行中…",
     "chat.messagePlaceholder": "訊息…輸入 / 使用命令，輸入 @ 搜尋檔案",
     "chat.steer": "引導",

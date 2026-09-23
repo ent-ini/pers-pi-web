@@ -339,7 +339,7 @@ export const zhCNLocale: LocalePlugin = {
     "chat.noMatchingFiles": "未找到匹配的文件",
     "chat.searchingAll": " · 正在搜索所有文件…",
     "chat.indexTruncated": " · 索引不完整",
-    "chat.steerPlaceholder": "立即引导 / 排队后续消息...",
+    "chat.steerPlaceholder": "中断当前回复…",
     "chat.agentPlaceholder": "Agent 运行中…",
     "chat.messagePlaceholder": "消息…输入 / 使用命令，输入 @ 查找文件",
     "chat.steer": "引导",

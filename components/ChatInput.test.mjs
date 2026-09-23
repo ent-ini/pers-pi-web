@@ -37,7 +37,7 @@ test("preserves pasted HTML links as Markdown without changing plain text layout
   assert.equal(replaceLinksWithMarkdown("plain text", [link("missing", "https://example.com")]), null);
 });
 
-test("follow-up shortcuts preserve newline, IME, mobile and completion behavior", () => {
+test("streaming shortcuts always send immediately while preserving newline, IME, mobile and completion behavior", () => {
   const source = ts.createSourceFile("ChatInput.tsx", readFileSync(new URL("./ChatInput.tsx", import.meta.url), "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   function findHandler(node) {
     if (ts.isVariableDeclaration(node) && node.name.getText(source) === "handleKeyDown") {
@@ -50,8 +50,8 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     compilerOptions: { target: ts.ScriptTarget.ES2020 },
   }).outputText);
   const cases = [
-    ["Enter steers", {}, {}, "steer"],
-    ["Alt+Enter follows up", { altKey: true }, {}, "followup"],
+    ["Enter sends immediately", {}, {}, "steer"],
+    ["Alt+Enter also sends immediately", { altKey: true }, {}, "steer"],
     ["idle Alt+Enter sends", { altKey: true }, { isStreaming: false }, "send"],
     ["Shift+Enter inserts a newline", { shiftKey: true }, {}, "native"],
     ["Alt+Shift+Enter keeps native behavior", { altKey: true, shiftKey: true }, {}, "native"],
@@ -61,11 +61,10 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
     ["composition grace blocks sending", { altKey: true }, { lastCompositionEndAtRef: { current: 950 } }, "prevented"],
     ["mobile Alt+Enter keeps native behavior", { altKey: true }, { isMobile: true }, "native"],
     ["mobile composition grace cannot send", { altKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "native"],
-    ["mobile Ctrl+Alt+Enter follows up", { altKey: true, ctrlKey: true }, { isMobile: true }, "followup"],
-    ["mobile Cmd+Alt+Enter follows up", { altKey: true, metaKey: true }, { isMobile: true }, "followup"],
+    ["mobile Ctrl+Alt+Enter sends immediately", { altKey: true, ctrlKey: true }, { isMobile: true }, "steer"],
+    ["mobile Cmd+Alt+Enter sends immediately", { altKey: true, metaKey: true }, { isMobile: true }, "steer"],
     ["mobile modified Enter respects composition grace", { altKey: true, ctrlKey: true }, { isMobile: true, lastCompositionEndAtRef: { current: 950 } }, "prevented"],
-    ["Enter falls back to follow-up", {}, { onSteer: undefined }, "followup"],
-    ["Alt+Enter falls back to steer", { altKey: true }, { onFollowUp: undefined }, "steer"],
+    ["Enter falls back to the normal send handler without active steering", {}, { onSteer: undefined }, "send"],
     ["slash completion takes priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "help" }, "slash"],
     ["available built-in commands take priority", { altKey: true }, { slashMenuOpen: true, slashQuery: "copy", value: "/copy", displayedSlashCommands: [{ name: "copy", source: "builtin", availableWhileStreaming: true }] }, "send"],
     ["file completion takes priority", { altKey: true }, { atMenuOpen: true, atQuery: {} }, "file"],
@@ -81,8 +80,8 @@ test("follow-up shortcuts preserve newline, IME, mobile and completion behavior"
       historyMenuOpen: false, inputHistory: ["previous"], historyActiveIndex: 0,
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [{}], slashActiveIndex: 0,
       atMenuOpen: false, atQuery: null, atMatches: [{}], atActiveIndex: 0,
-      onSteer() {}, onFollowUp() {},
-      sendQueued(mode) { action = mode; }, handleSend() { action = "send"; },
+      onSteer() {},
+      sendStreamingMessage() { action = "steer"; }, handleSend() { action = "send"; },
       applySlashCommand() { action = "slash"; },
       isExactSlashCommand, value: "", setSlashMenuOpen() {},
       applyAtCompletion() { action = "file"; },
@@ -121,8 +120,8 @@ test("file mention arrows wrap around the match list", () => {
       historyMenuOpen: false, inputHistory: [], historyActiveIndex: 0,
       slashMenuOpen: false, slashQuery: null, displayedSlashCommands: [], slashActiveIndex: 0,
       atMenuOpen: true, atQuery: {}, atMatches: Array.from({ length }, () => ({})), atActiveIndex,
-      onSteer() {}, onFollowUp() {},
-      sendQueued() {}, handleSend() {},
+      onSteer() {},
+      sendStreamingMessage() {}, handleSend() {},
       applySlashCommand() {},
       isExactSlashCommand() { return false; }, value: "@file",
       setSlashMenuOpen() {}, setAtMenuOpen() {},
@@ -159,15 +158,16 @@ test("cycleListIndex wraps in both directions", () => {
   assert.equal(cycleListIndex(-1, 4, 1), 0);
 });
 
-test("shows the follow-up shortcut in the button tooltip", () => {
+test("shows one icon-only steering button while the agent is running", () => {
   const html = renderToStaticMarkup(
     React.createElement(I18nProvider, { initialLocale: "en" }, React.createElement(ChatInput, {
-      onSend() {}, onAbort() {}, onFollowUp() {}, isStreaming: true,
+      onSend() {}, onAbort() {}, onSteer() {}, isStreaming: true,
     })),
   );
 
-  assert.match(html, /title="Queue this message after the agent finishes \(Alt\/Option\+Enter\)"/);
-  assert.match(html, /aria-keyshortcuts="Alt\+Enter"/);
+  assert.match(html, /title="Interrupt the current run and inject this message now"/);
+  assert.match(html, /aria-label="Steer"/);
+  assert.doesNotMatch(html, /Follow-up|Queue this message/);
 });
 
 test("renders the upstream model error", () => {
@@ -275,7 +275,7 @@ test("renders the empty tool preset as Chat only", () => {
   assert.match(html, />Chat only<\/span>/);
 });
 
-test("renders the compact composer with the standard Send button and no session controls", () => {
+test("renders the compact composer with an icon-only send button and no session controls", () => {
   const html = renderToStaticMarkup(
     React.createElement(
       I18nProvider,
@@ -290,7 +290,8 @@ test("renders the compact composer with the standard Send button and no session 
   );
 
   assert.match(html, /<textarea/);
-  assert.match(html, />Send<\/button>/);
+  assert.match(html, /title="Send" aria-label="Send"/);
+  assert.doesNotMatch(html, />Send<\/button>/);
   assert.equal((html.match(/<button\b/g) ?? []).length, 1);
   assert.doesNotMatch(html, /type="file"|Attach image|Change tool preset/);
 });

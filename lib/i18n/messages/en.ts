@@ -339,7 +339,7 @@ export const enLocale: LocalePlugin = {
     "chat.noMatchingFiles": "No matching files",
     "chat.searchingAll": " · searching all files…",
     "chat.indexTruncated": " · index truncated",
-    "chat.steerPlaceholder": "Steer now / queue follow-up...",
+    "chat.steerPlaceholder": "Interrupt the current response…",
     "chat.agentPlaceholder": "Agent is running…",
     "chat.messagePlaceholder": "Message… Type / for commands, @ for files",
     "chat.steer": "Steer",

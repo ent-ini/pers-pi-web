@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import type { AgentMessage, AssistantContentBlock, AssistantMessage, BashExecutionMessage, BlockingExtensionUiRequest, ExtensionUiRequest, SessionInfo, SessionTreeNode, ToolResultMessage, UserMessage } from "@/lib/types";
 import { normalizeCustomPanelLines } from "@/lib/ansi";
 import { asBracketedPaste, toTerminalKeyData } from "@/lib/terminal-input";
-import { countToolCallBlocks, getAssistantErrorMessage, getDisplayableAssistantBlocks, isMessageGroupAnchor, splitFinalAssistantBlocks } from "@/lib/message-display";
+import { countToolCallBlocks, getAssistantErrorMessage, isMessageGroupAnchor, splitAssistantBlocksForDisplay, splitFinalAssistantBlocks } from "@/lib/message-display";
 import { extractTurnWrittenFiles, type WrittenFile } from "@/lib/turn-written-files";
 import { buildQuotedSelection } from "@/lib/quoted-selection";
 import { MessageView } from "./MessageView";
@@ -289,7 +289,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
     sessionIdRef, scrollContainerRef,
     lastUserMsgRef, promptAnchorActive,
     handleSend, handleAbort, handleFork, handleNavigate, handleModelChange,
-    handleCompact, handleSteer, handleFollowUp, handlePromptWithStreamingBehavior, handleAbortCompaction,
+    handleCompact, handleSteer, handleAbortCompaction,
     handleRecallQueue,
     handleBuiltinSlashCommand,
     handleToolPresetChange, handleThinkingLevelChange, loadSlashCommands, scrollUserMsgToTop,
@@ -866,8 +866,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
       onSend={handleSend}
       onAbort={handleAbort}
       onSteer={agentRunning ? handleSteer : undefined}
-      onFollowUp={agentRunning ? handleFollowUp : undefined}
-      onPromptWithStreamingBehavior={agentRunning ? handlePromptWithStreamingBehavior : undefined}
       isStreaming={sessionBusy}
       model={displayModelValue}
       isAutoModelSelection={isAutoModelSelection}
@@ -1022,7 +1020,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 if (idx === lastUserIdx) { (lastUserMsgRef as { current: HTMLDivElement | null }).current = el; }
               };
 
-              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[] } = {}): ReactNode => {
+              const renderMessage = (idx: number, options: { attachRef?: boolean; keyPrefix?: string; messageOverride?: AgentMessage; showTimestamp?: boolean; writtenFiles?: WrittenFile[]; blockIndexOffset?: number } = {}): ReactNode => {
                 const msg = options.messageOverride ?? messages[idx];
                 const isVisible = isMessageGroupAnchor(msg) || msg.role === "assistant";
                 const currentRefIdx = visibleRefIndexByMessage.get(idx);
@@ -1052,6 +1050,7 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                     onOpenFile={onOpenFile}
                     onOpenSession={onOpenSession}
                     entryId={entryIds[idx]}
+                    blockIndexOffset={options.blockIndexOffset}
                     searchBlock={entryIds[idx] === pendingSearchScroll?.entryId ? searchBlock : undefined}
                     onFork={sessionBusy || isNew ? undefined : handleFork}
                     forking={forkingEntryId === entryIds[idx]}
@@ -1106,73 +1105,112 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                 rendered.push(renderMessage(userIdx));
 
                 const finalAssistant = messages[finalAssistantIdx] as AssistantMessage;
-                const finalSplit = splitFinalAssistantBlocks(finalAssistant);
-                const finalAnswerMessage = finalSplit.answerBlocks.length > 0 || getAssistantErrorMessage(finalAssistant)
-                  ? withAssistantBlocks(finalAssistant, finalSplit.answerBlocks)
-                  : null;
+                const finalHasAnswer = hasFinalAssistantAnswer(finalAssistant);
+                const finalHasError = Boolean(getAssistantErrorMessage(finalAssistant));
+                const hasFinalPresentation = finalHasAnswer || finalHasError;
 
-                const finalProcessEnd = finalAssistant.content.indexOf(finalSplit.answerBlocks[0]);
-                // Keep the original prefix so deferred thinking retains its stored block indices.
-                const finalProcessBlocks = finalAssistant.content.slice(0, finalProcessEnd < 0 ? undefined : finalProcessEnd);
+                // Each tool call is stored as its own assistant entry, so the
+                // final text alone carries no record of what the turn wrote.
+                // Derive the file list once and render it alongside the final
+                // visible text segment below.
+                const turnContent: AssistantContentBlock[] = [];
+                for (let i = userIdx + 1; i <= finalAssistantIdx; i++) {
+                  const m = messages[i];
+                  if (m?.role === "assistant") {
+                    for (const block of (m as AssistantMessage).content ?? []) turnContent.push(block);
+                  }
+                }
+                const writtenFiles = finalHasAnswer
+                  ? extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd)
+                  : undefined;
 
                 const processViews: ReactNode[] = [];
                 let processToolCount = 0;
                 let processRefIdx: number | undefined;
                 let revealProcess = false;
+                let processGroupNumber = 0;
+
+                const flushProcessViews = () => {
+                  if (processViews.length === 0) return;
+                  const groupNumber = processGroupNumber++;
+                  const refIndex = processRefIdx;
+                  rendered.push(
+                    <div
+                      key={`process-group-${entryIds[userIdx] ?? userIdx}-${groupNumber}`}
+                      ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}
+                    >
+                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!hasFinalPresentation} reveal={revealProcess} t={t}>
+                        {processViews}
+                      </ProcessDetailsGroup>
+                    </div>,
+                  );
+                  processViews.length = 0;
+                  processToolCount = 0;
+                  processRefIdx = undefined;
+                  revealProcess = false;
+                };
 
                 for (let processIdx = userIdx + 1; processIdx <= finalAssistantIdx; processIdx++) {
                   const processMessage = messages[processIdx];
                   if (processMessage.role === "custom") {
                     revealProcess ||= Boolean(pendingSearchScroll && pendingSearchScroll.entryId === entryIds[processIdx]);
-                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: "process" }));
+                    processViews.push(renderMessage(processIdx, { attachRef: false, keyPrefix: `process-${processGroupNumber}-${processIdx}` }));
                     continue;
                   }
                   if (processMessage.role !== "assistant") continue;
-                  const message = processIdx === finalAssistantIdx
-                    ? withAssistantBlocks(processMessage, finalProcessBlocks, { omitUsage: Boolean(finalAnswerMessage) })
-                    : processMessage;
-                  const blocks = getDisplayableAssistantBlocks(message);
-                  if (blocks.length === 0) continue;
-                  processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
-                  processToolCount += countToolCallBlocks(blocks);
-                  revealProcess ||= Boolean(pendingSearchScroll && entryIds[processIdx] === pendingSearchScroll.entryId && (!searchBlock || blocks.includes(searchBlock)));
-                  processViews.push(renderMessage(processIdx, {
-                    attachRef: false,
-                    keyPrefix: "process",
-                    messageOverride: message,
-                    showTimestamp: false,
-                  }));
-                }
 
-                if (processViews.length > 0) {
-                  rendered.push(
-                    <div
-                      key={`process-group-${entryIds[userIdx] ?? userIdx}`}
-                      ref={processRefIdx === undefined ? undefined : (el) => { messageRefs.current[processRefIdx] = el; }}
-                    >
-                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!finalAnswerMessage} reveal={revealProcess} t={t}>
-                        {processViews}
-                      </ProcessDetailsGroup>
-                    </div>,
-                  );
-                }
+                  const segments = splitAssistantBlocksForDisplay(processMessage);
+                  for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
+                    const segment = segments[segmentIndex];
+                    const isFinalVisibleSegment = finalHasAnswer
+                      && processIdx === finalAssistantIdx
+                      && segment.kind === "content"
+                      && segmentIndex === segments.length - 1;
+                    const message = withAssistantBlocks(processMessage, segment.blocks, {
+                      omitUsage: !isFinalVisibleSegment && hasFinalPresentation && processIdx === finalAssistantIdx,
+                    });
 
-                if (finalAnswerMessage) {
-                  // Each tool call is stored as its own assistant entry, so the
-                  // final answer alone carries no record of what the turn wrote.
-                  // Gather the turn's assistant blocks and derive the file list
-                  // from the write/edit calls among them.
-                  const turnContent: AssistantContentBlock[] = [];
-                  for (let i = userIdx + 1; i <= finalAssistantIdx; i++) {
-                    const m = messages[i];
-                    if (m?.role === "assistant") {
-                      for (const b of (m as AssistantMessage).content ?? []) turnContent.push(b);
+                    if (segment.kind === "process") {
+                      processRefIdx ??= visibleRefIndexByMessage.get(processIdx);
+                      processToolCount += countToolCallBlocks(segment.blocks);
+                      revealProcess ||= Boolean(
+                        pendingSearchScroll
+                        && entryIds[processIdx] === pendingSearchScroll.entryId
+                        && (!searchBlock || segment.blocks.includes(searchBlock)),
+                      );
+                      processViews.push(renderMessage(processIdx, {
+                        attachRef: false,
+                        keyPrefix: `process-${processGroupNumber}-${processIdx}-${segmentIndex}`,
+                        messageOverride: message,
+                        showTimestamp: false,
+                        blockIndexOffset: segment.blockIndexOffset,
+                      }));
+                      continue;
                     }
+
+                    // Text/image deltas are part of the visible conversation,
+                    // not process details. Flush surrounding thinking/tool calls
+                    // into separate collapsible groups before rendering them.
+                    flushProcessViews();
+                    rendered.push(renderMessage(processIdx, {
+                      attachRef: isFinalVisibleSegment ? undefined : false,
+                      keyPrefix: `content-${processIdx}-${segmentIndex}`,
+                      messageOverride: message,
+                      showTimestamp: isFinalVisibleSegment ? undefined : false,
+                      blockIndexOffset: segment.blockIndexOffset,
+                      writtenFiles: isFinalVisibleSegment ? writtenFiles : undefined,
+                    }));
                   }
-                  const writtenFiles = extractTurnWrittenFiles(turnContent, toolResultsMap, messageCwd);
+                }
+
+                flushProcessViews();
+
+                // Preserve completed provider errors even when the final
+                // assistant message contains only process blocks.
+                if (finalHasError && !finalHasAnswer) {
                   rendered.push(renderMessage(finalAssistantIdx, {
-                    messageOverride: finalAnswerMessage,
-                    writtenFiles,
+                    keyPrefix: "final-error",
+                    messageOverride: withAssistantBlocks(finalAssistant, []),
                   }));
                 }
                 for (let renderIdx = finalAssistantIdx + 1; renderIdx < endIdx; renderIdx++) {

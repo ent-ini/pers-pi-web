@@ -51,6 +51,53 @@ export function splitFinalAssistantBlocks(
   };
 }
 
+/** A contiguous part of an assistant message for the completed-turn view.
+ * `blockIndexOffset` keeps links to persisted block indices valid after the
+ * message is rendered in separate process/details and visible-content views. */
+export interface AssistantDisplaySegment {
+  kind: "process" | "content";
+  blocks: AssistantContentBlock[];
+  blockIndexOffset: number;
+}
+
+/**
+ * Separates an assistant message into technical process blocks (thinking and
+ * tool calls) and user-visible content (text and images). Unlike
+ * splitFinalAssistantBlocks(), this preserves text emitted between tool calls
+ * so it can remain visible when surrounding process details are collapsed.
+ */
+export function splitAssistantBlocksForDisplay(
+  message: AssistantMessage,
+  options: DisplayOptions = {},
+): AssistantDisplaySegment[] {
+  const content = message.content ?? [];
+  const segments: AssistantDisplaySegment[] = [];
+  let kind: AssistantDisplaySegment["kind"] | null = null;
+  let startIndex = -1;
+  let endIndex = -1;
+
+  const finish = () => {
+    if (kind === null || startIndex < 0 || endIndex < 0) return;
+    segments.push({
+      kind,
+      blocks: content.slice(startIndex, endIndex + 1),
+      blockIndexOffset: startIndex,
+    });
+  };
+
+  content.forEach((block, index) => {
+    if (isEmptyThinkingBlock(block, options)) return;
+    const nextKind: AssistantDisplaySegment["kind"] = isFinalAnswerBlock(block) ? "content" : "process";
+    if (kind !== null && kind !== nextKind) finish();
+    if (kind !== nextKind) startIndex = index;
+    kind = nextKind;
+    endIndex = index;
+  });
+  finish();
+
+  return segments;
+}
+
 export function countToolCallBlocks(blocks: AssistantContentBlock[]): number {
   return blocks.filter((block): block is ToolCallContent => block.type === "toolCall").length;
 }
