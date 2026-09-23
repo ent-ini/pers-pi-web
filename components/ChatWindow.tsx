@@ -1134,13 +1134,17 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
                   if (processViews.length === 0) return;
                   const groupNumber = processGroupNumber++;
                   const refIndex = processRefIdx;
+                  // JSX keeps an array by reference. Snapshot it before
+                  // resetting the accumulator, otherwise an expanded group
+                  // would have no children to reveal.
+                  const views = [...processViews];
                   rendered.push(
                     <div
                       key={`process-group-${entryIds[userIdx] ?? userIdx}-${groupNumber}`}
                       ref={refIndex === undefined ? undefined : (el) => { messageRefs.current[refIndex] = el; }}
                     >
-                      <ProcessDetailsGroup messageCount={processViews.length} toolCallCount={processToolCount} defaultExpanded={!hasFinalPresentation} reveal={revealProcess} t={t}>
-                        {processViews}
+                      <ProcessDetailsGroup messageCount={views.length} toolCallCount={processToolCount} defaultExpanded={!hasFinalPresentation} reveal={revealProcess} t={t}>
+                        {views}
                       </ProcessDetailsGroup>
                     </div>,
                   );

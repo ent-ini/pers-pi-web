@@ -17,3 +17,9 @@ test("keeps text/image content between technical blocks outside process details"
   assert.match(source, /if \(segment\.kind === "process"\)/);
   assert.match(source, /flushProcessViews\(\);[\s\S]*?rendered\.push\(renderMessage\(processIdx/);
 });
+
+test("snapshots accumulated process views before resetting the next group", () => {
+  assert.match(source, /const views = \[\.\.\.processViews\];/);
+  assert.match(source, /<ProcessDetailsGroup messageCount=\{views\.length\}[\s\S]*?>\s*\{views\}/);
+  assert.match(source, /\{views\}[\s\S]*?processViews\.length = 0;/);
+});
