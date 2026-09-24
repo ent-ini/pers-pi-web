@@ -91,6 +91,8 @@ test("New restores the draft after session navigation and workspace auto-restore
         branchLeafChangeFnRef: { current: null },
         liveFollowFrameRef: { current: null },
         bashRecoveryIdRef: { current: 0 },
+        sessionIdRef: { current: null },
+        dataRef: { current: null },
         cancelEventStreamGrace() {},
         closeEvents() {},
         isMobile: false,
