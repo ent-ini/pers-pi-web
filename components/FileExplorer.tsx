@@ -707,8 +707,11 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
   }, [pinnedNames, roots]);
   const pinnedRootNames = useMemo(() => new Set(pinnedRootNodes.map((node) => node.name)), [pinnedRootNodes]);
   const unpinnedRootNodes = useMemo(
-    () => roots.filter((node) => !pinnedRootNames.has(node.name)),
-    [pinnedRootNames, roots],
+    () => roots.filter((node) => (
+      !pinnedRootNames.has(node.name)
+      && (showHidden || !node.name.startsWith("."))
+    )),
+    [pinnedRootNames, roots, showHidden],
   );
 
   const handleSelectNode = useCallback((node: FileNode, _depth: number, event: React.MouseEvent<HTMLDivElement>) => {
@@ -876,7 +879,9 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     setLoading(cwdChanged);
     setError(null);
     let cancelled = false;
-    fetchEntries(cwd, showHidden)
+    // Keep root dot entries in memory so a previously pinned one remains
+    // visible even after the regular hidden-files view is switched off.
+    fetchEntries(cwd, true)
       .then((entries) => { if (!cancelled) setRoots(entries); })
       .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setLoading(false); });
