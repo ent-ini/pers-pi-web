@@ -4,6 +4,7 @@ import { BpmLoginError, loginWithBpm } from "@/lib/multiuse-bpm-client";
 import { createMultiuseSessionToken, PI_WEB_MULTI_SESSION_COOKIE, PI_WEB_MULTI_SESSION_MAX_AGE } from "@/lib/multiuse-auth";
 import { getMultiuseConfig } from "@/lib/multiuse-config";
 import { hasJsonContentType, isApiRequestAllowed } from "@/lib/request-security";
+import { ensureWorker } from "@/lib/worker-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,9 @@ export async function POST(request: NextRequest) {
   try {
     const config = getMultiuseConfig();
     const result = await loginWithBpm({ email, password }, config);
+    // Do not issue a session that lands on an unusable placeholder: provisioning
+    // is idempotent and starts (or resumes) this employee's isolated worker.
+    await ensureWorker(result.identity);
     recordAuthSuccess();
     const response = NextResponse.json({ user: result.identity }, { headers: { "Cache-Control": "no-store" } });
     response.cookies.set({
@@ -57,7 +61,7 @@ export async function POST(request: NextRequest) {
     if (error instanceof BpmLoginError && error.reason === "invalid-identity") {
       return NextResponse.json({ error: "Доступ к ИИ-помощнику для этого сотрудника недоступен." }, { status: 403 });
     }
-    console.error("[multiuse-auth] BPM login failed", error);
-    return NextResponse.json({ error: "Не удалось связаться с BuhgalterBPM. Попробуйте позже." }, { status: 502 });
+    console.error("[multiuse-auth] login or worker provisioning failed", error);
+    return NextResponse.json({ error: "Не удалось подготовить рабочее пространство. Попробуйте позже." }, { status: 503 });
   }
 }

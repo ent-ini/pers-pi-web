@@ -71,11 +71,21 @@ export function proxy(request: NextRequest) {
       }
       return new NextResponse("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
     }
-    // Multiuse must never expose the single-user routes, which directly read
-    // this process's Pi data and can run privileged local tools. New corporate
-    // capabilities live under /api/multi/ and are added deliberately.
+    // A browser retains the normal pi-web API shape, but every legacy request
+    // is rewritten to a server-side proxy for *this* employee's worker. The
+    // control-plane process never reads its own Pi data for corporate users.
     if (isApiRequest && !request.nextUrl.pathname.startsWith("/api/multi/")) {
-      return new NextResponse("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+      const path = request.nextUrl.pathname.slice("/api/".length);
+      const workerSession = readMultiuseSessionToken(
+        request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value,
+        getMultiuseConfig(),
+      );
+      // authenticated above guarantees a valid token; preserve the guard so a
+      // future change cannot accidentally turn this into an unauthenticated rewrite.
+      if (!workerSession) return new NextResponse("Authentication required", { status: 401 });
+      const target = new URL(`/api/multi/worker/${encodeURIComponent(workerSession.identity.id)}/${path}`, request.url);
+      target.search = request.nextUrl.search;
+      return NextResponse.rewrite(target);
     }
     return NextResponse.next();
   }
