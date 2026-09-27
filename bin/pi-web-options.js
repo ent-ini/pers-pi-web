@@ -9,6 +9,7 @@ const CLI_OPTIONS = {
   port: { type: "string", short: "p" },
   hostname: { type: "string", short: "H" },
   "no-open": { type: "boolean" },
+  mode: { type: "string" },
   help: { type: "boolean", short: "h" },
 };
 
@@ -29,6 +30,12 @@ function normalizePort(value) {
   return String(port);
 }
 
+function normalizeMode(value) {
+  const mode = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (mode === "single" || mode === "multi") return mode;
+  throw new Error('Mode must be either "single" or "multi".');
+}
+
 function getHelpText() {
   return `Usage: pi-web [options]
 
@@ -37,6 +44,7 @@ Start the Pi Web UI server.
 Options:
   -p, --port <port>          Server port (default: 30141, or PORT)
   -H, --hostname <host>      Bind hostname (default: 127.0.0.1, or PI_WEB_HOSTNAME)
+      --mode <single|multi>  Operating mode (default: single, or PI_WEB_MODE)
       --no-open              Do not open a browser automatically
   -h, --help                 Show this help message and exit
 
@@ -44,6 +52,7 @@ Environment:
   PORT                       Default port when --port is omitted
   PI_WEB_HOSTNAME            Default hostname when --hostname is omitted
   PI_WEB_NO_OPEN             Set to 1/true/yes/on to disable browser open
+  PI_WEB_MODE                Operating mode: single (default) or multi
   PI_WEB_PASSWORD            Enable browser password login and API Basic Auth
   PI_WEB_ALLOWED_HOSTS       Extra exact proxy/custom hostnames, comma-separated
   PI_WEB_SKIP_VERSION_CHECK  Set to 1 to disable Pi Web update checks
@@ -82,6 +91,7 @@ function parseLaunchOptions(args = process.argv.slice(2), env = process.env) {
     help: false,
     port: normalizePort(values.port ?? env.PORT ?? "30141"),
     hostname: values.hostname ?? env.PI_WEB_HOSTNAME ?? "127.0.0.1",
+    mode: normalizeMode(values.mode ?? env.PI_WEB_MODE ?? "single"),
     openBrowser: !values["no-open"] && !isEnabled(env.PI_WEB_NO_OPEN),
   };
 }

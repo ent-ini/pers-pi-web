@@ -38,7 +38,7 @@ if (launchOptions.help) {
   process.exit(0);
 }
 
-const { port, hostname, openBrowser } = launchOptions;
+const { port, hostname, mode, openBrowser } = launchOptions;
 
 const pkgDir = path.join(__dirname, "..");
 const nextDir = path.join(pkgDir, ".next");
@@ -60,6 +60,14 @@ try {
 
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
+
+// Until the BPM-backed multiuser login flow is installed, never start the
+// multiuser shell without the existing server-side authentication boundary.
+// A placeholder UI must not accidentally expose the legacy agent APIs.
+if (mode === "multi" && !passwordEnabled) {
+  console.error("Multiuser mode currently requires PI_WEB_PASSWORD.");
+  process.exit(1);
+}
 
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
@@ -86,7 +94,7 @@ nextArgs.push("-H", hostname);
 const child = spawn(process.execPath, getNextNodeArgs(nextBin, nextArgs), {
   cwd: pkgDir,
   stdio: ["inherit", "pipe", "inherit"],
-  env: { ...process.env, PI_WEB_HOSTNAME: hostname },
+  env: { ...process.env, PI_WEB_HOSTNAME: hostname, PI_WEB_MODE: mode },
 });
 wireChildProcessLifecycle(child);
 

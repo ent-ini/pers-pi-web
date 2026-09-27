@@ -195,6 +195,42 @@ body {
   flex-direction: column;
 }
 
+.multiuse-pending-page {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 24px;
+}
+
+.multiuse-pending-card {
+  width: min(100%, 540px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--bg-panel);
+  padding: 30px;
+  box-shadow: 0 16px 44px color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+.multiuse-pending-card h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+}
+
+.multiuse-pending-card p {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.multiuse-pending-card .multiuse-pending-eyebrow {
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 .web-login-page {
   display: grid;
   min-height: 100%;
