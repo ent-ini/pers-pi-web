@@ -45,6 +45,18 @@ async function prepareDirectories(employeeId) {
   return root;
 }
 
+async function waitForWorker(url) {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`${url}/api/home`, { signal: AbortSignal.timeout(1_000) });
+      if (response.ok) return;
+    } catch { /* The worker is still starting. */ }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  throw new Error("Worker did not become ready in time.");
+}
+
 async function ensureWorker(employeeId) {
   if (!UUID.test(employeeId)) throw new Error("Invalid employee identifier.");
   const name = containerName(employeeId);
@@ -79,7 +91,9 @@ async function ensureWorker(employeeId) {
   } else if (!info.State.Running) {
     await docker("POST", `/containers/${name}/start`);
   }
-  return `http://${name}:30141`;
+  const url = `http://${name}:30141`;
+  await waitForWorker(url);
+  return url;
 }
 
 function send(response, status, payload) {
