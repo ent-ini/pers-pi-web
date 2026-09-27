@@ -14,6 +14,9 @@ import {
   isWebPasswordEnabled,
   PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
+import { PI_WEB_MULTI_SESSION_COOKIE, readMultiuseSessionToken } from "@/lib/multiuse-auth";
+import { getMultiuseConfig } from "@/lib/multiuse-config";
+import { isMultiuseMode } from "@/lib/runtime-mode";
 
 function tooManyAttempts(retryAfterMs: number): NextResponse {
   return new NextResponse("Too many failed attempts", {
@@ -37,6 +40,42 @@ export function proxy(request: NextRequest) {
       return new NextResponse("Untrusted request", { status: 403 });
     }
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  if (isMultiuseMode()) {
+    let authenticated = false;
+    try {
+      authenticated = Boolean(readMultiuseSessionToken(
+        request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value,
+        getMultiuseConfig(),
+      ));
+    } catch {
+      return new NextResponse("Multiuser configuration is unavailable", { status: 503 });
+    }
+
+    const isLoginEndpoint = request.nextUrl.pathname === "/api/multi/auth/login";
+    const isSessionEndpoint = request.nextUrl.pathname === "/api/multi/auth/session";
+    if (request.nextUrl.pathname === "/login") {
+      return authenticated
+        ? NextResponse.redirect(new URL("/", request.url))
+        : NextResponse.next();
+    }
+    if (isLoginEndpoint || (isSessionEndpoint && request.method === "DELETE")) return NextResponse.next();
+    if (!authenticated) {
+      if (!isApiRequest) {
+        const loginUrl = new URL("/login", request.url);
+        if (request.nextUrl.search) loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+        return NextResponse.redirect(loginUrl);
+      }
+      return new NextResponse("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
+    }
+    // Multiuse must never expose the single-user routes, which directly read
+    // this process's Pi data and can run privileged local tools. New corporate
+    // capabilities live under /api/multi/ and are added deliberately.
+    if (isApiRequest && !request.nextUrl.pathname.startsWith("/api/multi/")) {
+      return new NextResponse("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+    }
+    return NextResponse.next();
   }
 
   const password = process.env.PI_WEB_PASSWORD;

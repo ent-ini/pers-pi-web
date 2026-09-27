@@ -48,6 +48,8 @@ For port and hostname, command-line options override the corresponding environme
 | `--hostname <host>`, `-H <host>`, or `PI_WEB_HOSTNAME` | Bind hostname | `127.0.0.1` |
 | `--no-open` or `PI_WEB_NO_OPEN=1` | Do not open a browser automatically | Browser opens |
 | `--mode <single|multi>` or `PI_WEB_MODE` | Operating mode (`multi` is reserved for the corporate deployment) | `single` |
+| `PI_WEB_BPM_API_URL` | BPM origin used for corporate authentication; required in `multi` | — |
+| `PI_WEB_MULTI_SESSION_SECRET` | Random 32+ character secret used to encrypt corporate HttpOnly sessions; required in `multi` | — |
 | `PI_WEB_SKIP_VERSION_CHECK=1` | Disable Pi Web update checks | Unset |
 | `PI_WEB_ALLOWED_HOSTS` | Additional exact proxy or custom hostnames, comma-separated | Unset |
 | `PI_WEB_PASSWORD` | Enable browser password login; API clients may use Basic Auth with username `pi` | Authentication disabled |

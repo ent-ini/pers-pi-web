@@ -61,14 +61,6 @@ try {
 const loopbackHostnames = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const passwordEnabled = Boolean(process.env.PI_WEB_PASSWORD);
 
-// Until the BPM-backed multiuser login flow is installed, never start the
-// multiuser shell without the existing server-side authentication boundary.
-// A placeholder UI must not accidentally expose the legacy agent APIs.
-if (mode === "multi" && !passwordEnabled) {
-  console.error("Multiuser mode currently requires PI_WEB_PASSWORD.");
-  process.exit(1);
-}
-
 if (!fs.existsSync(nextDir)) {
   console.error("Build artifacts not found. Please report this issue.");
   process.exit(1);
