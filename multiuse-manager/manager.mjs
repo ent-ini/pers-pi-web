@@ -71,7 +71,7 @@ async function ensureWorker(employeeId) {
     await docker("POST", `/containers/create?name=${name}`, {
       Image: image,
       Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
-      Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1"],
+      Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", `PI_WEB_ALLOWED_HOSTS=${name}`],
       HostConfig: {
         NetworkMode: network,
         ReadonlyRootfs: true,
