@@ -1,0 +1,17 @@
+services:
+  pi-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pi_web_multi
+    restart: unless-stopped
+    env_file:
+      - .env.multi
+    environment:
+      PI_WEB_MODE: multi
+      PI_WEB_HOSTNAME: 0.0.0.0
+      PI_WEB_NO_OPEN: "1"
+    ports:
+      # The reverse proxy reaches boffice through Tailscale; do not expose the
+      # corporate shell on the office LAN or public host interfaces directly.
+      - "100.100.20.0:30141:30141"
