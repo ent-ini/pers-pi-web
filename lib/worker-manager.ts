@@ -30,7 +30,7 @@ export async function ensureWorker(identity: MultiuseIdentity): Promise<string> 
   }).catch(() => null);
   if (!response?.ok) throw new Error(`Worker manager request failed (${response?.status ?? "network"}).`);
   const payload = await response.json().catch(() => null) as { url?: unknown } | null;
-  if (!payload || typeof payload.url !== "string" || !/^http:\/\/[a-z0-9-]+:30141$/.test(payload.url)) {
+  if (!payload || typeof payload.url !== "string" || !/^http:\/\/[a-z0-9_-]+:30141$/.test(payload.url)) {
     throw new Error("Worker manager returned an invalid worker address.");
   }
   return payload.url;

@@ -68,28 +68,41 @@ async function ensureWorker(employeeId) {
   }
   if (!info) {
     const root = await prepareDirectories(employeeId);
-    await docker("POST", `/containers/create?name=${name}`, {
-      Image: image,
-      Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
-      Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
-      HostConfig: {
-        NetworkMode: network,
-        ReadonlyRootfs: true,
-        CapDrop: ["ALL"],
-        SecurityOpt: ["no-new-privileges:true"],
-        PidsLimit: 256,
-        Memory: 2147483648,
-        NanoCpus: 2000000000,
-        Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" },
-        Mounts: [
-          { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
-          { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
-        ],
-      },
-    });
-    await docker("POST", `/containers/${name}/start`);
+    try {
+      await docker("POST", `/containers/create?name=${name}`, {
+        Image: image,
+        Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
+        Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
+        HostConfig: {
+          NetworkMode: network,
+          ReadonlyRootfs: true,
+          CapDrop: ["ALL"],
+          SecurityOpt: ["no-new-privileges:true"],
+          PidsLimit: 256,
+          Memory: 2147483648,
+          NanoCpus: 2000000000,
+          Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" },
+          Mounts: [
+            { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
+            { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
+          ],
+        },
+      });
+    } catch (error) {
+      // A page loads several APIs concurrently. If another request created the
+      // same deterministic worker first, adopt it instead of failing the user.
+      if (!String(error).includes(" 409 ")) throw error;
+      info = await docker("GET", `/containers/${name}/json`);
+    }
+    if (!info || !info.State.Running) {
+      await docker("POST", `/containers/${name}/start`).catch((error) => {
+        if (!String(error).includes(" 304 ")) throw error;
+      });
+    }
   } else if (!info.State.Running) {
-    await docker("POST", `/containers/${name}/start`);
+    await docker("POST", `/containers/${name}/start`).catch((error) => {
+      if (!String(error).includes(" 304 ")) throw error;
+    });
   }
   const url = `http://${name}:30141`;
   await waitForWorker(url);
