@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { AppShell } from "@/components/AppShell";
 import { I18nProvider } from "@/hooks/useI18n";
+import { isMultiuseMode } from "@/lib/runtime-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export default function Home() {
   return (
     <Suspense>
       <I18nProvider>
-        <AppShell />
+        <AppShell autoSelectDefaultCwd={isMultiuseMode()} />
       </I18nProvider>
     </Suspense>
   );

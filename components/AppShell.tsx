@@ -75,7 +75,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
 }
 
-export function AppShell() {
+export function AppShell({ autoSelectDefaultCwd = false }: { autoSelectDefaultCwd?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
@@ -1129,6 +1129,7 @@ export function AppShell() {
         onNewSession={handleNewSession}
         initialSessionId={initialSessionId}
         skipInitialProjectSelection={initialNavigation.requestedCwd !== null}
+        autoSelectDefaultCwd={autoSelectDefaultCwd}
         onInitialRestoreDone={handleInitialRestoreDone}
         refreshKey={refreshKey}
         onSessionDeleted={handleSessionDeleted}
