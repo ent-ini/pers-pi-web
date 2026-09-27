@@ -2,6 +2,8 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+# npm's postinstall runs this helper, so it must be available before npm ci.
+COPY bin/prepare-terminal.js ./bin/prepare-terminal.js
 RUN npm ci
 
 COPY . .
