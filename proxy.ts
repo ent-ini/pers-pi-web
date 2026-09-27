@@ -60,7 +60,9 @@ export function proxy(request: NextRequest) {
         ? NextResponse.redirect(new URL("/", request.url))
         : NextResponse.next();
     }
-    if (isLoginEndpoint || (isSessionEndpoint && request.method === "DELETE")) return NextResponse.next();
+    // The session route itself decides whether its response is 401 or exposes
+    // the non-secret identity. It also clears an invalid cookie on GET.
+    if (isLoginEndpoint || isSessionEndpoint) return NextResponse.next();
     if (!authenticated) {
       if (!isApiRequest) {
         const loginUrl = new URL("/login", request.url);
