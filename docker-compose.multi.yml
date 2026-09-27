@@ -12,7 +12,6 @@ services:
       PI_WEB_HOSTNAME: 0.0.0.0
       PI_WEB_NO_OPEN: "1"
       PI_WEB_WORKER_MANAGER_URL: http://worker-manager:3030
-      PI_WEB_WORKER_MANAGER_SECRET: ${PI_WEB_WORKER_MANAGER_SECRET:?required}
     ports:
       # The reverse proxy reaches boffice through Tailscale; do not expose the
       # corporate shell on the office LAN or public host interfaces directly.
@@ -26,8 +25,9 @@ services:
       dockerfile: Dockerfile
     container_name: pi_web_worker_manager
     restart: unless-stopped
+    env_file:
+      - .env.multi
     environment:
-      PI_WEB_WORKER_MANAGER_SECRET: ${PI_WEB_WORKER_MANAGER_SECRET:?required}
       PI_WEB_WORKER_IMAGE: pi-web-multi-pi-web:latest
       PI_WEB_WORKER_NETWORK: pi-web-internal
     volumes:
