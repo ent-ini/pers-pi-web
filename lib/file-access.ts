@@ -40,6 +40,13 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
     // ignore if home is unreadable
   }
 
+  // A corporate worker begins in its pre-provisioned workspace before it has
+  // any sessions. These paths are deployment-owned environment values, and
+  // must be available to file/model APIs on that very first screen.
+  for (const root of [process.env.PI_WEB_LOCKED_CWD, process.env.PI_WEB_DEFAULT_CWD]) {
+    if (root && path.isAbsolute(root)) roots.add(normalizeSlashes(root));
+  }
+
   for (const root of getAdditionalAllowedRoots()) roots.add(root);
 
   globalThis.__piAllowedRootsCache = { roots, expiresAt: now + ALLOWED_ROOTS_TTL_MS };
