@@ -11,7 +11,9 @@ const themeSource = await readFile(new URL("../hooks/useTheme.ts", import.meta.u
 const themeOptionsSource = await readFile(new URL("../lib/theme.ts", import.meta.url), "utf8");
 const enSource = await readFile(new URL("../lib/i18n/messages/en.ts", import.meta.url), "utf8");
 const zhSource = await readFile(new URL("../lib/i18n/messages/zh-CN.ts", import.meta.url), "utf8");
-const loginSource = await readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8");
+// The single-user password form lives in its own client component so the
+// route can select the independent BPM login in multiuser mode.
+const loginSource = await readFile(new URL("./WebPasswordLogin.tsx", import.meta.url), "utf8");
 
 test("opens one settings panel from direct sidebar shortcuts", () => {
   assert.match(shellSource, /<SettingsPanel/);

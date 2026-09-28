@@ -14,6 +14,9 @@ import {
   isWebPasswordEnabled,
   PI_WEB_SESSION_COOKIE,
 } from "@/lib/web-auth";
+import { PI_WEB_MULTI_SESSION_COOKIE, readMultiuseSessionToken } from "@/lib/multiuse-auth";
+import { getMultiuseConfig } from "@/lib/multiuse-config";
+import { isMultiuseMode } from "@/lib/runtime-mode";
 
 function tooManyAttempts(retryAfterMs: number): NextResponse {
   return new NextResponse("Too many failed attempts", {
@@ -37,6 +40,54 @@ export function proxy(request: NextRequest) {
       return new NextResponse("Untrusted request", { status: 403 });
     }
     return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
+  }
+
+  if (isMultiuseMode()) {
+    let authenticated = false;
+    try {
+      authenticated = Boolean(readMultiuseSessionToken(
+        request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value,
+        getMultiuseConfig(),
+      ));
+    } catch {
+      return new NextResponse("Multiuser configuration is unavailable", { status: 503 });
+    }
+
+    const isLoginEndpoint = request.nextUrl.pathname === "/api/multi/auth/login";
+    const isSessionEndpoint = request.nextUrl.pathname === "/api/multi/auth/session";
+    if (request.nextUrl.pathname === "/login") {
+      return authenticated
+        ? NextResponse.redirect(new URL("/", request.url))
+        : NextResponse.next();
+    }
+    // The session route itself decides whether its response is 401 or exposes
+    // the non-secret identity. It also clears an invalid cookie on GET.
+    if (isLoginEndpoint || isSessionEndpoint) return NextResponse.next();
+    if (!authenticated) {
+      if (!isApiRequest) {
+        const loginUrl = new URL("/login", request.url);
+        if (request.nextUrl.search) loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+        return NextResponse.redirect(loginUrl);
+      }
+      return new NextResponse("Authentication required", { status: 401, headers: { "Cache-Control": "no-store" } });
+    }
+    // A browser retains the normal pi-web API shape, but every legacy request
+    // is rewritten to a server-side proxy for *this* employee's worker. The
+    // control-plane process never reads its own Pi data for corporate users.
+    if (isApiRequest && !request.nextUrl.pathname.startsWith("/api/multi/")) {
+      const path = request.nextUrl.pathname.slice("/api/".length);
+      const workerSession = readMultiuseSessionToken(
+        request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value,
+        getMultiuseConfig(),
+      );
+      // authenticated above guarantees a valid token; preserve the guard so a
+      // future change cannot accidentally turn this into an unauthenticated rewrite.
+      if (!workerSession) return new NextResponse("Authentication required", { status: 401 });
+      const target = new URL(`/api/multi/worker/${encodeURIComponent(workerSession.identity.id)}/${path}`, request.url);
+      target.search = request.nextUrl.search;
+      return NextResponse.rewrite(target);
+    }
+    return NextResponse.next();
   }
 
   const password = process.env.PI_WEB_PASSWORD;

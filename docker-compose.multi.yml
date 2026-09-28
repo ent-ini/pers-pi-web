@@ -1,0 +1,45 @@
+services:
+  pi-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pi_web_multi
+    restart: unless-stopped
+    env_file:
+      - .env.multi
+    environment:
+      PI_WEB_MODE: multi
+      PI_WEB_HOSTNAME: 0.0.0.0
+      PI_WEB_NO_OPEN: "1"
+      PI_WEB_WORKER_MANAGER_URL: http://worker-manager:3030
+    ports:
+      # The reverse proxy reaches boffice through Tailscale; do not expose the
+      # corporate shell on the office LAN or public host interfaces directly.
+      - "100.100.20.0:30141:30141"
+    networks:
+      - default
+      - pi-web-internal
+
+  worker-manager:
+    build:
+      context: ./multiuse-manager
+      dockerfile: Dockerfile
+    container_name: pi_web_worker_manager
+    restart: unless-stopped
+    env_file:
+      - .env.multi
+    environment:
+      PI_WEB_WORKER_IMAGE: pi-web-multi-pi-web:latest
+      PI_WEB_WORKER_NETWORK: pi-web-internal
+    volumes:
+      # This is the only component with Docker authority. Workers themselves
+      # have no Docker socket and are reachable only on the internal network.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /data/pi-web:/data/pi-web
+    networks:
+      - pi-web-internal
+
+networks:
+  pi-web-internal:
+    name: pi-web-internal
+    internal: true
