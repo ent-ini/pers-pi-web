@@ -14,7 +14,7 @@ test("configures iOS standalone mode to use the full screen", () => {
   assert.match(layoutSource, /statusBarStyle: "black-translucent"/);
   assert.match(layoutSource, /viewportFit: "cover"/);
   assert.match(layoutSource, /interactiveWidget: "resizes-content"/);
-  assert.match(cssSource, /@media \(display-mode: standalone\) \{[\s\S]*?--app-viewport-height: 100vh;/);
+  assert.doesNotMatch(cssSource, /@media \(display-mode: standalone\) \{[\s\S]*?--app-viewport-height: 100vh;/);
 });
 
 test("tracks the visual viewport while the software keyboard is open", () => {
@@ -28,6 +28,8 @@ test("tracks the visual viewport while the software keyboard is open", () => {
   assert.match(appShellSource, /height: "var\(--app-viewport-height, 100dvh\)"/);
   assert.match(appShellSource, /data-mobile-toolbar-file=\{mobile \? "true" : undefined\}/);
   assert.match(viewportHookSource, /window\.visualViewport/);
+  assert.match(viewportHookSource, /restingViewportHeight/);
+  assert.match(viewportHookSource, /KEYBOARD_VIEWPORT_DELTA_PX/);
   assert.match(viewportHookSource, /window\.requestAnimationFrame\(update\)/);
   assert.match(viewportHookSource, /window\.addEventListener\("resize", scheduleUpdate\)/);
   assert.match(viewportHookSource, /window\.addEventListener\("focusout", scheduleUpdate\)/);

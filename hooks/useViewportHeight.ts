@@ -2,9 +2,13 @@
 
 import { useEffect } from "react";
 
+const KEYBOARD_VIEWPORT_DELTA_PX = 80;
+
 interface ViewportHeightState {
   hasFocusedEditable: boolean;
   innerHeight: number;
+  /** Visual viewport height while no editor was focused (before the keyboard). */
+  restingViewportHeight: number;
   viewportHeight: number;
   viewportScale: number;
 }
@@ -12,11 +16,18 @@ interface ViewportHeightState {
 export function shouldUseVisualViewportHeight({
   hasFocusedEditable,
   innerHeight,
+  restingViewportHeight,
   viewportHeight,
   viewportScale,
 }: ViewportHeightState): boolean {
   const isUnscaled = Math.abs(viewportScale - 1) < 0.01;
-  return hasFocusedEditable && isUnscaled && innerHeight - viewportHeight > 1;
+  if (!hasFocusedEditable || !isUnscaled) return false;
+
+  // Older WebKit leaves innerHeight at the layout viewport while the keyboard
+  // changes visualViewport. Newer iOS with interactive-widget=resizes-content
+  // reduces both values, so keep a resting visual-viewport measurement too.
+  return innerHeight - viewportHeight > 1
+    || restingViewportHeight - viewportHeight >= KEYBOARD_VIEWPORT_DELTA_PX;
 }
 
 function hasFocusedEditableElement(): boolean {
@@ -41,12 +52,27 @@ export function useViewportHeight(): void {
 
     const root = document.documentElement;
     let frameId: number | null = null;
+    // On iOS 17+ `innerHeight` can shrink together with visualViewport when
+    // the keyboard opens. Remember the last unfocused visual viewport so that
+    // case is still distinguishable from an ordinary focused text field.
+    let restingViewportHeight = viewport.height;
+    let restingViewportWidth = viewport.width;
 
     const update = () => {
       frameId = null;
+      const hasFocusedEditable = hasFocusedEditableElement();
+      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
+      // A rotation can happen while an input keeps focus. Its new short side
+      // must become the baseline, rather than looking like a keyboard.
+      const viewportWidthChanged = Math.abs(restingViewportWidth - viewport.width) > 1;
+      if ((!hasFocusedEditable && isUnscaled) || viewportWidthChanged) {
+        restingViewportHeight = viewport.height;
+        restingViewportWidth = viewport.width;
+      }
       const keyboardOpen = shouldUseVisualViewportHeight({
-        hasFocusedEditable: hasFocusedEditableElement(),
+        hasFocusedEditable,
         innerHeight: window.innerHeight,
+        restingViewportHeight,
         viewportHeight: viewport.height,
         viewportScale: viewport.scale,
       });
@@ -57,7 +83,6 @@ export function useViewportHeight(): void {
       }
 
       const pageWasShifted = window.scrollX !== 0 || window.scrollY !== 0;
-      const isUnscaled = Math.abs(viewport.scale - 1) < 0.01;
       if (pageWasShifted && isUnscaled) {
         window.scrollTo(0, 0);
       }
