@@ -11,7 +11,7 @@ export default function Home() {
   return (
     <Suspense>
       <I18nProvider>
-        <AppShell autoSelectDefaultCwd={isMultiuseMode()} />
+        <AppShell autoSelectDefaultCwd={isMultiuseMode()} lockedWorkspace={isMultiuseMode()} />
       </I18nProvider>
     </Suspense>
   );

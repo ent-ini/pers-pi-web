@@ -24,7 +24,9 @@ export async function POST(req: Request) {
   let promptAccepted = false;
   try {
     const body = await req.json() as { cwd?: string; [key: string]: unknown };
-    const { cwd, ...command } = body;
+    const { cwd: requestedCwd, ...command } = body;
+    const lockedCwd = process.env.PI_WEB_LOCKED_CWD;
+    const cwd = lockedCwd || requestedCwd;
     commandType = typeof command.type === "string" ? command.type : undefined;
 
     if (!cwd || typeof cwd !== "string") {
