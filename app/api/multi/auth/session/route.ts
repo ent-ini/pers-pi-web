@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PI_WEB_MULTI_SESSION_COOKIE, readMultiuseSessionToken } from "@/lib/multiuse-auth";
+import { createMultiuseSessionToken, PI_WEB_MULTI_SESSION_COOKIE, PI_WEB_MULTI_SESSION_MAX_AGE, readMultiuseSessionToken } from "@/lib/multiuse-auth";
 import { getMultiuseConfig } from "@/lib/multiuse-config";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
@@ -27,9 +27,23 @@ function clearSession(response: NextResponse, request: Request): NextResponse {
 export async function GET(request: NextRequest) {
   if (!isApiRequestAllowed(request)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   try {
-    const session = readMultiuseSessionToken(request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value, getMultiuseConfig());
+    const config = getMultiuseConfig();
+    const session = readMultiuseSessionToken(request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value, config);
     if (!session) return clearSession(NextResponse.json({ error: "Authentication required" }, { status: 401 }), request);
-    return NextResponse.json({ user: session.identity }, { headers: { "Cache-Control": "no-store" } });
+    // Refresh the encrypted token on an active visit so sessions move to the
+    // current one-week TTL without forcing everyone to sign in again.
+    const response = NextResponse.json({ user: session.identity }, { headers: { "Cache-Control": "no-store" } });
+    response.cookies.set({
+      name: PI_WEB_MULTI_SESSION_COOKIE,
+      value: createMultiuseSessionToken(session.accessToken, session.identity, config),
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecureRequest(request),
+      path: "/",
+      ...(process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN ? { domain: process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN } : {}),
+      maxAge: PI_WEB_MULTI_SESSION_MAX_AGE,
+    });
+    return response;
   } catch {
     return NextResponse.json({ error: "Multiuser configuration is unavailable" }, { status: 503 });
   }
