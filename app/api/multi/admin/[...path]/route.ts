@@ -10,6 +10,9 @@ function isAdmin(role: string): boolean {
 }
 
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const adminHost = process.env.PI_WEB_ADMIN_HOST?.trim().toLowerCase();
+  const requestHost = request.headers.get("host")?.split(":", 1)[0]?.toLowerCase();
+  if (adminHost && requestHost !== adminHost) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let session;
   try {
     session = readMultiuseSessionToken(request.cookies.get(PI_WEB_MULTI_SESSION_COOKIE)?.value, getMultiuseConfig());

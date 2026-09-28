@@ -75,7 +75,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
 }
 
-export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false }: { autoSelectDefaultCwd?: boolean; lockedWorkspace?: boolean }) {
+export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false, adminHref }: { autoSelectDefaultCwd?: boolean; lockedWorkspace?: boolean; adminHref?: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
@@ -1147,7 +1147,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         onSessionsChange={handleSessionsChange}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {lockedWorkspace && <a href="/admin" style={{ display: "flex", alignItems: "center", padding: "0 8px", fontSize: 12, color: "var(--text-muted)" }}>Админка</a>}
+        {lockedWorkspace && <a href={adminHref || "/admin"} style={{ display: "flex", alignItems: "center", padding: "0 8px", fontSize: 12, color: "var(--text-muted)" }}>Админка</a>}
         {([
           ["models", translate("common.models")],
           ["skills", translate("common.skills")],

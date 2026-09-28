@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
       sameSite: "lax",
       secure: isSecureRequest(request),
       path: "/",
+      ...(process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN ? { domain: process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN } : {}),
       maxAge: PI_WEB_MULTI_SESSION_MAX_AGE,
     });
     return response;

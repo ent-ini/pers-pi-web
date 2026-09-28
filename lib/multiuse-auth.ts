@@ -2,7 +2,8 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import type { MultiuseConfig } from "./multiuse-config";
 
 export const PI_WEB_MULTI_SESSION_COOKIE = "pi_web_multi_session";
-export const PI_WEB_MULTI_SESSION_MAX_AGE = 60 * 60;
+// Corporate sessions are intentionally persistent enough for a work week.
+export const PI_WEB_MULTI_SESSION_MAX_AGE = 7 * 24 * 60 * 60;
 
 export interface MultiuseIdentity {
   id: string;

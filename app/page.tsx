@@ -8,10 +8,12 @@ export const dynamic = "force-dynamic";
 export default function Home() {
   // In multi mode the same UI is backed by the authenticated employee's
   // worker: proxy.ts rewrites legacy API calls before they reach this process.
+  const multiuse = isMultiuseMode();
+  const adminHost = process.env.PI_WEB_ADMIN_HOST?.trim();
   return (
     <Suspense>
       <I18nProvider>
-        <AppShell autoSelectDefaultCwd={isMultiuseMode()} lockedWorkspace={isMultiuseMode()} />
+        <AppShell autoSelectDefaultCwd={multiuse} lockedWorkspace={multiuse} adminHref={multiuse && adminHost ? `https://${adminHost}` : undefined} />
       </I18nProvider>
     </Suspense>
   );

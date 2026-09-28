@@ -59,6 +59,8 @@ For port and hostname, command-line options override the corresponding environme
 | `--mode <single|multi>` or `PI_WEB_MODE` | Operating mode (`multi` is reserved for the corporate deployment) | `single` |
 | `PI_WEB_BPM_API_URL` | BPM origin used for corporate authentication; required in `multi` | — |
 | `PI_WEB_MULTI_SESSION_SECRET` | Random 32+ character secret used to encrypt corporate HttpOnly sessions; required in `multi` | — |
+| `PI_WEB_MULTI_SESSION_COOKIE_DOMAIN` | Optional shared cookie domain, e.g. `.example.com` for `ai` and `admin` subdomains | Unset |
+| `PI_WEB_ADMIN_HOST` | Exact separate hostname permitted to serve the corporate admin UI | Unset |
 | `PI_WEB_WORKER_MANAGER_URL` | Internal URL of the worker manager; required by the multiuser control plane | — |
 | `PI_WEB_WORKER_MANAGER_SECRET` | Random 32+ character credential between the control plane and worker manager; required in `multi` | — |
 | `PI_WEB_DEFAULT_CWD` | Default directory for a worker; set internally to `/workspace` | Unset |

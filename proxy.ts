@@ -43,6 +43,15 @@ export function proxy(request: NextRequest) {
   }
 
   if (isMultiuseMode()) {
+    const adminHost = process.env.PI_WEB_ADMIN_HOST?.trim().toLowerCase();
+    const requestHost = request.headers.get("host")?.split(":", 1)[0]?.toLowerCase();
+    const isAdminOrigin = Boolean(adminHost && requestHost === adminHost);
+    if (!isAdminOrigin && request.nextUrl.pathname === "/admin") {
+      return new NextResponse("Not found", { status: 404 });
+    }
+    if (isAdminOrigin && request.nextUrl.pathname === "/") {
+      return NextResponse.redirect(new URL("/admin", request.url));
+    }
     let authenticated = false;
     try {
       authenticated = Boolean(readMultiuseSessionToken(

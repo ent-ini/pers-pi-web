@@ -18,6 +18,7 @@ function clearSession(response: NextResponse, request: Request): NextResponse {
     sameSite: "lax",
     secure: isSecureRequest(request),
     path: "/",
+    ...(process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN ? { domain: process.env.PI_WEB_MULTI_SESSION_COOKIE_DOMAIN } : {}),
     maxAge: 0,
   });
   return response;
