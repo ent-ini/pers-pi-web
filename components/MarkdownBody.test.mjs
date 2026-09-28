@@ -46,6 +46,22 @@ test("keeps local file markdown links in the app", () => {
   assert.doesNotMatch(fileUrlHtml, /target=|rel=|\snode=/);
 });
 
+test("renders @ absolute attachment paths as filename buttons", () => {
+  const html = renderMarkdown("Готово: @/home/me/outbound/monthly-report.pdf.");
+
+  assert.match(html, /<button (?=[^>]*class="markdown-file-attachment")(?=[^>]*aria-label="Open file: monthly-report\.pdf")[^>]*>/);
+  assert.match(html, /catppuccin-file-icon/);
+  assert.match(html, /<span>monthly-report\.pdf<\/span><\/button>\.<\/p>/);
+  assert.doesNotMatch(html, />@\/home\/me\/outbound\/monthly-report\.pdf</);
+});
+
+test("does not turn @ paths in inline code into attachment buttons", () => {
+  const html = renderMarkdown("`@/home/me/outbound/monthly-report.pdf`");
+
+  assert.match(html, /<code[^>]*>@\/home\/me\/outbound\/monthly-report\.pdf<\/code>/);
+  assert.doesNotMatch(html, /markdown-file-attachment/);
+});
+
 test("keeps file URLs inert without an in-app file handler", () => {
   const html = renderMarkdown("[report](file:///home/me/project/report.html)", { onOpenFile: undefined });
 
