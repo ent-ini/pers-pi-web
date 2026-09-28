@@ -3,10 +3,12 @@
 import { createContext, useContext, useMemo, type ComponentProps, type MouseEvent } from "react";
 import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown";
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
-import { encodeFilePathForApi } from "@/lib/file-paths";
+import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, normalizeDisplayMath } from "@/lib/markdown";
+import { isFileAttachmentHref } from "@/lib/file-attachments";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
+import { getFileIcon } from "./FileIcons";
 
 const MarkdownLinkContext = createContext(false);
 
@@ -77,8 +79,41 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
     a({ href, children, ...props }) {
       // `node` is react-markdown metadata, not a DOM attribute.
       delete props.node;
+      const isAttachment = isFileAttachmentHref(href);
       const filePath = onOpenFile ? resolveLocalFileHref(href, cwd) : null;
       const openFile = onOpenFile;
+
+      if (isAttachment && filePath && openFile) {
+        const name = getFileName(filePath);
+        return (
+          <button
+            type="button"
+            title={filePath}
+            aria-label={`Open file: ${name}`}
+            onClick={() => openFile(filePath, parsePdfPageFragment(href) ?? undefined)}
+            className="markdown-file-attachment"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "2px 8px",
+              verticalAlign: "baseline",
+              fontSize: "0.9em",
+              fontFamily: "var(--font-mono)",
+              lineHeight: 1.5,
+              color: "var(--text)",
+              background: "var(--bg-subtle)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            {getFileIcon(name, 13)}
+            <span>{name}</span>
+          </button>
+        );
+      }
+
       if (!filePath || !openFile) {
         return (
           <MarkdownLinkContext.Provider value={true}>

@@ -103,6 +103,8 @@ interface Props {
   onNewSession?: (sessionId: string, cwd: string) => void;
   initialSessionId?: string | null;
   skipInitialProjectSelection?: boolean;
+  /** Corporate workers begin in their pre-created /workspace folder. */
+  autoSelectDefaultCwd?: boolean;
   onInitialRestoreDone?: () => void;
   refreshKey?: number;
   onSessionDeleted?: (sessionId: string) => void;
@@ -348,12 +350,13 @@ function PiWebTitle() {
   );
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, initialSessionId, skipInitialProjectSelection, autoSelectDefaultCwd = false, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
   const [, setSessionListVersion] = useState<number | null>(null);
   const sessionListVersionRef = useRef<number | null>(null);
   const sessionLoadIdRef = useRef(0);
+  const autoDefaultRequestedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCwd, setSelectedCwd] = useState<string | null>(null);
@@ -735,6 +738,23 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
       // ignore
     }
   }, []);
+
+  // A new corporate worker has no historical sessions from which to infer a
+  // project. Select its server-provisioned workspace without changing the
+  // personal single-user startup behaviour.
+  useEffect(() => {
+    if (!autoSelectDefaultCwd || loading || allSessions.length !== 0 || selectedCwd !== null || autoDefaultRequestedRef.current) return;
+    autoDefaultRequestedRef.current = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/default-cwd", { method: "POST" });
+        const payload = await response.json() as { cwd?: unknown };
+        if (response.ok && typeof payload.cwd === "string") setSelectedCwd(payload.cwd);
+      } catch {
+        // The ordinary workspace selector remains available for a retry.
+      }
+    })();
+  }, [allSessions.length, autoSelectDefaultCwd, loading, selectedCwd]);
 
   // Close dropdowns on outside click
   useEffect(() => {
