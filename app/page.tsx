@@ -9,11 +9,10 @@ export default function Home() {
   // In multi mode the same UI is backed by the authenticated employee's
   // worker: proxy.ts rewrites legacy API calls before they reach this process.
   const multiuse = isMultiuseMode();
-  const adminHost = process.env.PI_WEB_ADMIN_HOST?.trim();
   return (
     <Suspense>
       <I18nProvider>
-        <AppShell autoSelectDefaultCwd={multiuse} lockedWorkspace={multiuse} adminHref={multiuse && adminHost ? `https://${adminHost}` : undefined} />
+        <AppShell lockedWorkspace={multiuse} />
       </I18nProvider>
     </Suspense>
   );

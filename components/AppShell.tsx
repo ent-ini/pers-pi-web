@@ -75,7 +75,7 @@ function parkedNewSessionDraftKey(cwd: string): string {
   return `parked-new:${cwd}`;
 }
 
-export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false, adminHref }: { autoSelectDefaultCwd?: boolean; lockedWorkspace?: boolean; adminHref?: string }) {
+export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false }: { autoSelectDefaultCwd?: boolean; lockedWorkspace?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [initialNavigation] = useState(() => getInitialNavigation(searchParams));
@@ -143,7 +143,10 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     });
   }, []);
   // The temporary id distinguishes consecutive fresh composers in one cwd.
-  const [newSessionCwd, setNewSessionCwd] = useState<string | null>(null);
+  // Corporate workers always expose their private bind-mounted workspace at
+  // /workspace. Seed it before the first API request so a freshly provisioned
+  // employee never lands on the empty "select a project" screen.
+  const [newSessionCwd, setNewSessionCwd] = useState<string | null>(() => lockedWorkspace ? "/workspace" : null);
   const [newSessionDraftId, setNewSessionDraftId] = useState("initial");
   const activeNewSessionDraftKeyRef = useRef<string | null>(null);
   const [initialCwdStatus, setInitialCwdStatus] = useState<"idle" | "validating" | "ready" | "error">(
@@ -1147,7 +1150,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         onSessionsChange={handleSessionsChange}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
-        {lockedWorkspace && <a href={adminHref || "/admin"} style={{ display: "flex", alignItems: "center", padding: "0 8px", fontSize: 12, color: "var(--text-muted)" }}>Админка</a>}
         {([
           ["models", translate("common.models")],
           ["skills", translate("common.skills")],
