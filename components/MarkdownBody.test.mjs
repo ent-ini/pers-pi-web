@@ -63,11 +63,11 @@ test("renders bare absolute paths as filename buttons", () => {
   assert.doesNotMatch(html, />\/tmp\/audits\/scrm-ar-errors-by-date-2026-09-29\.md</);
 });
 
-test("does not turn paths in inline code into attachment buttons", () => {
+test("renders a standalone inline-code path as a filename button", () => {
   const html = renderMarkdown("`/home/me/outbound/monthly-report.pdf`");
 
-  assert.match(html, /<code[^>]*>\/home\/me\/outbound\/monthly-report\.pdf<\/code>/);
-  assert.doesNotMatch(html, /markdown-file-attachment/);
+  assert.match(html, /<button (?=[^>]*class="markdown-file-attachment")(?=[^>]*aria-label="Open file: monthly-report\.pdf")[^>]*>/);
+  assert.doesNotMatch(html, /<code[^>]*>\/home\/me\/outbound\/monthly-report\.pdf<\/code>/);
 });
 
 test("keeps file URLs inert without an in-app file handler", () => {

@@ -39,6 +39,13 @@ function attachment(filePath: string): MarkdownNode {
   };
 }
 
+function attachmentPath(token: string): string | null {
+  const rawPath = token.startsWith("@/") ? token.slice(1) : token;
+  if (!rawPath.startsWith("/")) return null;
+  const filePath = rawPath.replace(TRAILING_PATH_PUNCTUATION, "");
+  return filePath && filePath !== "/" ? filePath : null;
+}
+
 /** Split one ordinary markdown text node into text and compact absolute-path links. */
 export function splitFileAttachmentText(value: string): MarkdownNode[] {
   const result: MarkdownNode[] = [];
@@ -50,8 +57,8 @@ export function splitFileAttachmentText(value: string): MarkdownNode[] {
     const tokenIndex = match.index + prefix.length;
     const rawPath = match[2];
     const pathIndex = tokenIndex + (value[tokenIndex] === "@" ? 1 : 0);
-    const filePath = rawPath.replace(TRAILING_PATH_PUNCTUATION, "");
-    if (!filePath || filePath === "/") continue;
+    const filePath = attachmentPath(rawPath);
+    if (!filePath) continue;
 
     if (tokenIndex > cursor) result.push(text(value.slice(cursor, tokenIndex)));
     result.push(attachment(filePath));
@@ -75,9 +82,17 @@ function transformChildren(node: MarkdownNode): void {
       children.push(...splitFileAttachmentText(child.value));
       continue;
     }
-    // Existing links, image labels, and code are intentional literal content;
-    // only prose text receives the attachment shorthand.
-    if (child.type !== "link" && child.type !== "image" && child.type !== "inlineCode" && child.type !== "code") {
+    // Models normally format a standalone path as inline code. It is still a
+    // file reference, so promote just that exact token; command snippets and
+    // all fenced code stay literal.
+    if (child.type === "inlineCode" && child.value !== undefined) {
+      const filePath = attachmentPath(child.value);
+      children.push(filePath ? attachment(filePath) : child);
+      continue;
+    }
+    // Existing links, image labels, and fenced code are intentional literal
+    // content; only prose text receives the attachment shorthand.
+    if (child.type !== "link" && child.type !== "image" && child.type !== "code") {
       transformChildren(child);
     }
     children.push(child);
