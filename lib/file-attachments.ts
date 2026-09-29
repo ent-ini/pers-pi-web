@@ -11,11 +11,11 @@ export function isFileAttachmentHref(href: string | undefined): boolean {
   return href?.endsWith(ATTACHMENT_FRAGMENT) ?? false;
 }
 const TRAILING_PATH_PUNCTUATION = /[.,;:!?)}\]]+$/;
-// An attachment emitted by Ini is an @ prefix followed by an absolute POSIX
-// path. Paths are deliberately limited to one non-whitespace token: outbound
-// attachments use ASCII no-space names, and this avoids guessing where prose
-// after a path begins.
-const ATTACHMENT_PATH = /(^|[\s(])@(\/[^\s<>"'`]+)/g;
+// Turn absolute POSIX paths in ordinary prose into compact file links. `@`
+// remains supported as an explicit attachment marker, but assistant replies
+// commonly contain bare paths too. Paths are deliberately limited to one
+// non-whitespace token so we never have to guess where following prose begins.
+const ATTACHMENT_PATH = /(^|[\s(])@?(\/[^\s<>"'`]+)/g;
 
 function filePathToHref(filePath: string): string {
   // Encode each segment so #, ?, and Unicode stay part of the filesystem path,
@@ -39,7 +39,7 @@ function attachment(filePath: string): MarkdownNode {
   };
 }
 
-/** Split one ordinary markdown text node into text and compact file links. */
+/** Split one ordinary markdown text node into text and compact absolute-path links. */
 export function splitFileAttachmentText(value: string): MarkdownNode[] {
   const result: MarkdownNode[] = [];
   let cursor = 0;
@@ -47,14 +47,15 @@ export function splitFileAttachmentText(value: string): MarkdownNode[] {
 
   for (let match; (match = ATTACHMENT_PATH.exec(value));) {
     const prefix = match[1];
-    const atIndex = match.index + prefix.length;
+    const tokenIndex = match.index + prefix.length;
     const rawPath = match[2];
+    const pathIndex = tokenIndex + (value[tokenIndex] === "@" ? 1 : 0);
     const filePath = rawPath.replace(TRAILING_PATH_PUNCTUATION, "");
     if (!filePath || filePath === "/") continue;
 
-    if (atIndex > cursor) result.push(text(value.slice(cursor, atIndex)));
+    if (tokenIndex > cursor) result.push(text(value.slice(cursor, tokenIndex)));
     result.push(attachment(filePath));
-    cursor = atIndex + 1 + filePath.length;
+    cursor = pathIndex + filePath.length;
     // The regex includes trailing prose punctuation. Resume from the actual
     // path end so that punctuation remains visible as normal message text.
     ATTACHMENT_PATH.lastIndex = cursor;
@@ -84,7 +85,7 @@ function transformChildren(node: MarkdownNode): void {
   node.children = children;
 }
 
-/** Remark plugin that turns @/absolute/path tokens into marked local links. */
+/** Remark plugin that turns bare or @-prefixed absolute paths into marked local links. */
 export function remarkFileAttachments() {
   return (tree: MarkdownNode) => {
     transformChildren(tree);

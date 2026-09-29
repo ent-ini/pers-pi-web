@@ -55,10 +55,18 @@ test("renders @ absolute attachment paths as filename buttons", () => {
   assert.doesNotMatch(html, />@\/home\/me\/outbound\/monthly-report\.pdf</);
 });
 
-test("does not turn @ paths in inline code into attachment buttons", () => {
-  const html = renderMarkdown("`@/home/me/outbound/monthly-report.pdf`");
+test("renders bare absolute paths as filename buttons", () => {
+  const html = renderMarkdown("Отчёт: /tmp/audits/scrm-ar-errors-by-date-2026-09-29.md.");
 
-  assert.match(html, /<code[^>]*>@\/home\/me\/outbound\/monthly-report\.pdf<\/code>/);
+  assert.match(html, /<button (?=[^>]*class="markdown-file-attachment")(?=[^>]*aria-label="Open file: scrm-ar-errors-by-date-2026-09-29\.md")[^>]*>/);
+  assert.match(html, /<span>scrm-ar-errors-by-date-2026-09-29\.md<\/span><\/button>\.<\/p>/);
+  assert.doesNotMatch(html, />\/tmp\/audits\/scrm-ar-errors-by-date-2026-09-29\.md</);
+});
+
+test("does not turn paths in inline code into attachment buttons", () => {
+  const html = renderMarkdown("`/home/me/outbound/monthly-report.pdf`");
+
+  assert.match(html, /<code[^>]*>\/home\/me\/outbound\/monthly-report\.pdf<\/code>/);
   assert.doesNotMatch(html, /markdown-file-attachment/);
 });
 
