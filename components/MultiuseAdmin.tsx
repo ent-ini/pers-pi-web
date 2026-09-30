@@ -5,7 +5,11 @@ import { MarkdownBody } from "./MarkdownBody";
 import styles from "./MultiuseAdmin.module.css";
 
 type Tab = "users" | "files" | "models" | "skills" | "tools";
-type Employee = { id: string; name: string; email: string; role: string; worker: "Работает" | "Остановлен" | "Не создан" };
+type Employee = { id: string; name: string; email: string; role: string; status: string; worker: "running" | "stopped" | "not-created" | "unknown" };
+type AdminUser = { fullName: string; role: string };
+const roles: Record<string, string> = { admin: "Администратор", tech: "Тех. специалист", employee: "Сотрудник", viewer: "Наблюдатель", member: "Сотрудник" };
+const workerLabels: Record<Employee["worker"], string> = { running: "Работает", stopped: "Остановлен", "not-created": "Не создан", unknown: "Недоступен" };
+const statusLabels: Record<string, string> = { active: "Активен", archived: "В архиве", inactive: "Неактивен", disabled: "Отключён" };
 type DefaultFile = { name: string; path: string; kind: "file" | "folder"; content?: string };
 
 function parentDirectory(path: string) {
@@ -15,12 +19,6 @@ function parentDirectory(path: string) {
 type Model = { name: string; provider: string; id: string; description: string; enabled: boolean };
 type Resource = { name: string; description: string; enabled: boolean };
 
-const initialUsers: Employee[] = [
-  { id: "1", name: "Анна Смирнова", email: "a.smirnova@buhgalterboutique.ru", role: "Бухгалтер", worker: "Работает" },
-  { id: "2", name: "Елена Кузнецова", email: "e.kuznetsova@buhgalterboutique.ru", role: "Бухгалтер", worker: "Работает" },
-  { id: "3", name: "Мария Волкова", email: "m.volkova@buhgalterboutique.ru", role: "Старший бухгалтер", worker: "Остановлен" },
-  { id: "4", name: "Ольга Петрова", email: "o.petrova@buhgalterboutique.ru", role: "Администратор", worker: "Не создан" },
-];
 const initialFiles: DefaultFile[] = [
   { name: "Инструкции", path: "Инструкции", kind: "folder" },
   { name: "Как работать с помощником.md", path: "Инструкции/Как работать с помощником.md", kind: "file", content: "# Как работать с ИИ-помощником\n\nОпишите задачу простыми словами и приложите необходимые документы.\n\n## Важно\n\n- Не отправляйте пароли и коды подтверждения.\n- Проверяйте ответы, особенно суммы и реквизиты.\n- Если ответ неполный — уточните вопрос." },
@@ -79,8 +77,12 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
 
 export function MultiuseAdmin() {
   const [allowed, setAllowed] = useState<boolean | null>(null);
+  const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("users");
-  const [users] = useState(initialUsers);
+  const [users, setUsers] = useState<Employee[]>([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [usersError, setUsersError] = useState("");
+  const [workerAvailable, setWorkerAvailable] = useState(true);
   const [files, setFiles] = useState(initialFiles);
   const [selectedFile, setSelectedFile] = useState(initialFiles[1].path);
   const [directoryPath, setDirectoryPath] = useState("");
@@ -100,10 +102,35 @@ export function MultiuseAdmin() {
     let mounted = true;
     void fetch("/api/multi/auth/session").then(async (response) => {
       const body = await response.json().catch(() => ({}));
-      if (mounted) setAllowed(body.user?.role === "admin" || body.user?.role === "tech");
+      if (mounted) {
+        setAllowed(response.ok && (body.user?.role === "admin" || body.user?.role === "tech"));
+        setAdminUser(body.user || null);
+      }
     }).catch(() => { if (mounted) setAllowed(false); });
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (!allowed) return;
+    const controller = new AbortController();
+    setUsersLoading(true);
+    setUsersError("");
+    void fetch("/api/multi/admin/users", { signal: controller.signal, cache: "no-store" }).then(async (response) => {
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !Array.isArray(body.users)) throw new Error(body.error || "Не удалось загрузить сотрудников BPM");
+      if (!controller.signal.aborted) {
+        setUsers(body.users);
+        setWorkerAvailable(body.workerAvailable === true);
+        setUsersLoading(false);
+      }
+    }).catch((error) => {
+      if (!controller.signal.aborted) {
+        setUsersError(error instanceof Error ? error.message : "Не удалось загрузить сотрудников BPM");
+        setUsersLoading(false);
+      }
+    });
+    return () => controller.abort();
+  }, [allowed]);
 
   const notify = (message: string) => {
     setToast(message);
@@ -115,7 +142,7 @@ export function MultiuseAdmin() {
     name: part,
     path: parts.slice(0, index + 1).join("/"),
   }));
-  const filteredUsers = useMemo(() => users.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(search.toLowerCase())), [users, search]);
+  const filteredUsers = useMemo(() => users.filter((user) => `${user.name} ${user.email} ${roles[user.role] || user.role} ${statusLabels[user.status] || user.status}`.toLowerCase().includes(search.trim().toLowerCase())), [users, search]);
 
   const chooseFile = (file: DefaultFile) => {
     if (file.kind !== "file") return;
@@ -149,10 +176,6 @@ export function MultiuseAdmin() {
     setFiles(remaining);
     const next = remaining.find((file) => file.kind === "file" && parentDirectory(file.path) === directoryPath);
     setSelectedFile(next?.path || ""); setFileDraft(next?.content || ""); setEditingFile(false);
-  };
-  const resetWorkspace = (user: Employee) => {
-    if (!window.confirm(`Пересоздать workspace для ${user.name}? Все пользовательские файлы будут удалены.`)) return;
-    notify(`Запрос на пересоздание workspace: ${user.name} (демо)`);
   };
   const toggleResource = (kind: "models" | "skills" | "tools", index: number) => {
     const update = <T extends { enabled: boolean }>(items: T[]) => items.map((item, i) => i === index ? { ...item, enabled: !item.enabled } : item);
@@ -195,7 +218,7 @@ export function MultiuseAdmin() {
   if (!allowed) return <main className={styles.centerState}><div className={styles.deniedIcon}>!</div><h1>Нет доступа</h1><p>Для просмотра панели нужны права администратора.</p></main>;
 
   const title = tabs.find((tab) => tab.id === activeTab)?.label || "Пользователи";
-  const activeCount = activeTab === "users" ? users.length : activeTab === "files" ? files.filter((file) => file.kind === "file").length : activeTab === "models" ? models.filter((item) => item.enabled).length : activeTab === "skills" ? skills.filter((item) => item.enabled).length : tools.filter((item) => item.enabled).length;
+  const activeCount = activeTab === "users" ? usersLoading || usersError ? "—" : users.length : activeTab === "files" ? files.filter((file) => file.kind === "file").length : activeTab === "models" ? models.filter((item) => item.enabled).length : activeTab === "skills" ? skills.filter((item) => item.enabled).length : tools.filter((item) => item.enabled).length;
 
   return <main className={styles.admin}>
     <aside className={styles.sidebar}>
@@ -204,21 +227,23 @@ export function MultiuseAdmin() {
       <nav className={styles.nav} aria-label="Разделы администрирования">
         {tabs.map((tab) => <button key={tab.id} className={`${styles.navItem} ${activeTab === tab.id ? styles.navActive : ""}`} onClick={() => { setActiveTab(tab.id); setSearch(""); }}><Icon name={tab.icon} /><span>{tab.label}</span>{tab.id === "users" && <span className={styles.navCount}>{users.length}</span>}</button>)}
       </nav>
-      <div className={styles.sidebarBottom}><span className={styles.statusDot} /> Предварительный интерфейс<br/><small>Изменения пока не сохраняются</small></div>
+      <div className={styles.sidebarBottom}><span className={styles.statusDot} /> Настройки в разработке<br/><small>Данные сотрудников — из BPM</small></div>
     </aside>
     <section className={styles.mainArea}>
-      <header className={styles.topbar}><div className={styles.breadcrumb}>Администрирование <Icon name="chevron" size={14}/><strong>{title}</strong></div><div className={styles.topUser}><div className={styles.avatar}>А</div><div><strong>Администратор</strong><span>Команда Бухгалтер Бутик</span></div><button className={styles.iconButton} aria-label="Меню пользователя"><Icon name="more"/></button></div></header>
+      <header className={styles.topbar}><div className={styles.breadcrumb}>Администрирование <Icon name="chevron" size={14}/><strong>{title}</strong></div><div className={styles.topUser}><div className={styles.avatar}>{(adminUser?.fullName || "А")[0]}</div><div><strong>{adminUser?.fullName || "Администратор"}</strong><span>Команда Бухгалтер Бутик</span></div></div></header>
       <div className={styles.content}>
-        <div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Управляйте доступом сотрудников и их рабочими пространствами." : activeTab === "files" ? "Подготовьте файлы и инструкции, которые появятся в workspace сотрудников." : activeTab === "models" ? "Выберите модели, доступные сотрудникам в чате." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
+        <div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Сотрудники из BuhgalterBPM и состояние их AI-workspace." : activeTab === "files" ? "Подготовьте файлы и инструкции, которые появятся в workspace сотрудников." : activeTab === "models" ? "Выберите модели, доступные сотрудникам в чате." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
           {activeTab !== "users" && activeTab !== "files" && <button className={styles.primaryButton} onClick={() => { setModal(activeTab === "models" ? "model" : activeTab === "skills" ? "skill" : "tool"); setFormName(""); setFormDetail(""); setFormId(""); }}><Icon name="plus"/>Добавить {activeTab === "models" ? "модель" : activeTab === "skills" ? "навык" : "инструмент"}</button>}
           {activeTab === "files" && <button className={styles.primaryButton} onClick={addFile}><Icon name="plus"/>Добавить файл</button>}
         </div>
-        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "files" ? "Файлы в шаблоне" : activeTab === "models" ? "Активные модели" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>Предварительный просмотр</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников.</span></div></div>
+        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "files" ? "Файлы в шаблоне" : activeTab === "models" ? "Активные модели" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>{activeTab === "users" ? "Данные из BPM" : "Предварительный просмотр"}</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>{activeTab === "users" ? "Список сотрудников синхронизируется с BPM при открытии страницы. Управление workspace пока не подключено." : "Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников."}</span></div></div>
 
         {activeTab === "users" && <section className={styles.panel}>
-          <div className={styles.panelHeader}><div><h2>Сотрудники</h2><p>Список пользователей корпоративного AI-чата</p></div><label className={styles.search}><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск сотрудника"/><kbd>⌘ K</kbd></label></div>
-          <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>СОТРУДНИК</th><th>РОЛЬ</th><th>WORKER</th><th className={styles.actionsHeading}>ДЕЙСТВИЯ</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><div className={styles.employee}><div className={styles.avatar}>{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div></td><td><Badge tone={user.role === "Администратор" ? "blue" : "neutral"}>{user.role}</Badge></td><td><Badge tone={user.worker === "Работает" ? "green" : user.worker === "Остановлен" ? "amber" : "neutral"}><i className={styles.badgeDot}/>{user.worker}</Badge></td><td className={styles.actionsCell}><button className={styles.secondaryButton} onClick={() => resetWorkspace(user)}><Icon name="refresh" size={15}/>Пересоздать workspace</button></td></tr>)}</tbody></table>{filteredUsers.length === 0 && <div className={styles.emptyState}>Сотрудники не найдены</div>}</div>
-          <footer className={styles.panelFooter}>Показано {filteredUsers.length} из {users.length} записей <span>Демонстрационные данные · подключение BuhgalterBPM будет позже</span></footer>
+          <div className={styles.panelHeader}><div><h2>Сотрудники BPM</h2><p>Актуальные профили из BuhgalterBPM</p></div><label className={styles.search}><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск сотрудника"/></label></div>
+          {usersLoading ? <div className={styles.emptyState}>Загружаем сотрудников…</div> : usersError ? <div className={styles.emptyState} role="alert">{usersError}. Обновите страницу, чтобы повторить попытку.</div> : <>
+          {!workerAvailable && <div className={styles.emptyState} role="status">Состояние worker-ов сейчас недоступно. Список сотрудников загружен из BPM.</div>}
+          <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>СОТРУДНИК</th><th>РОЛЬ</th><th>СТАТУС BPM</th><th>WORKER</th><th className={styles.actionsHeading}>ДЕЙСТВИЯ</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><div className={styles.employee}><div className={styles.avatar}>{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div></td><td><Badge tone={user.role === "admin" || user.role === "tech" ? "blue" : "neutral"}>{roles[user.role] || user.role}</Badge></td><td><Badge tone={user.status === "active" ? "green" : "amber"}>{statusLabels[user.status] || user.status}</Badge></td><td><Badge tone={user.worker === "running" ? "green" : user.worker === "stopped" ? "amber" : "neutral"}><i className={styles.badgeDot}/>{workerLabels[user.worker]}</Badge></td><td className={styles.actionsCell}><button className={styles.secondaryButton} disabled title="Пересоздание workspace будет подключено позже"><Icon name="refresh" size={15}/>Пересоздать workspace</button></td></tr>)}</tbody></table>{filteredUsers.length === 0 && <div className={styles.emptyState}>Сотрудники не найдены</div>}</div>
+          <footer className={styles.panelFooter}>Показано {filteredUsers.length} из {users.length} записей <span>Источник: BuhgalterBPM · управление workspace пока недоступно</span></footer></>}
         </section>}
 
         {activeTab === "files" && <section className={`${styles.panel} ${styles.filesPanel}`}>
