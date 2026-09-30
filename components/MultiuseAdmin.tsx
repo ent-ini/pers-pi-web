@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { MarkdownBody } from "./MarkdownBody";
 import styles from "./MultiuseAdmin.module.css";
 
 type Tab = "users" | "files" | "models" | "skills" | "tools";
 type Employee = { id: string; name: string; email: string; role: string; worker: "Работает" | "Остановлен" | "Не создан" };
 type DefaultFile = { name: string; path: string; kind: "file" | "folder"; content?: string };
+
+function parentDirectory(path: string) {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? "" : path.slice(0, slash);
+}
 type Model = { name: string; provider: string; id: string; description: string; enabled: boolean };
 type Resource = { name: string; description: string; enabled: boolean };
 
@@ -78,13 +83,14 @@ export function MultiuseAdmin() {
   const [users] = useState(initialUsers);
   const [files, setFiles] = useState(initialFiles);
   const [selectedFile, setSelectedFile] = useState(initialFiles[1].path);
+  const [directoryPath, setDirectoryPath] = useState("");
   const [fileDraft, setFileDraft] = useState(initialFiles[1].content || "");
   const [editingFile, setEditingFile] = useState(false);
   const [models, setModels] = useState(initialModels);
   const [skills, setSkills] = useState(initialSkills);
   const [tools, setTools] = useState(initialTools);
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState<"model" | "skill" | "tool" | "file" | null>(null);
+  const [modal, setModal] = useState<"model" | "skill" | "tool" | "file" | "folder" | null>(null);
   const [formName, setFormName] = useState("");
   const [formDetail, setFormDetail] = useState("");
   const [formId, setFormId] = useState("");
@@ -104,6 +110,11 @@ export function MultiuseAdmin() {
     window.setTimeout(() => setToast(""), 2600);
   };
   const currentFile = files.find((file) => file.path === selectedFile);
+  const directoryEntries = files.filter((file) => parentDirectory(file.path) === directoryPath);
+  const directoryBreadcrumbs = directoryPath.split("/").filter(Boolean).map((part, index, parts) => ({
+    name: part,
+    path: parts.slice(0, index + 1).join("/"),
+  }));
   const filteredUsers = useMemo(() => users.filter((user) => `${user.name} ${user.email} ${user.role}`.toLowerCase().includes(search.toLowerCase())), [users, search]);
 
   const chooseFile = (file: DefaultFile) => {
@@ -116,6 +127,16 @@ export function MultiuseAdmin() {
     setFormName("");
     setModal("file");
   };
+  const addFolder = () => {
+    setFormName("");
+    setModal("folder");
+  };
+  const openDirectory = (path: string) => {
+    setDirectoryPath(path);
+    setSelectedFile("");
+    setFileDraft("");
+    setEditingFile(false);
+  };
   const saveFile = () => {
     if (!currentFile) return;
     setFiles((current) => current.map((file) => file.path === currentFile.path ? { ...file, content: fileDraft } : file));
@@ -126,7 +147,7 @@ export function MultiuseAdmin() {
     if (!currentFile || !window.confirm(`Удалить файл «${currentFile.name}» из списка по умолчанию?`)) return;
     const remaining = files.filter((file) => file.path !== currentFile.path);
     setFiles(remaining);
-    const next = remaining.find((file) => file.kind === "file");
+    const next = remaining.find((file) => file.kind === "file" && parentDirectory(file.path) === directoryPath);
     setSelectedFile(next?.path || ""); setFileDraft(next?.content || ""); setEditingFile(false);
   };
   const resetWorkspace = (user: Employee) => {
@@ -141,14 +162,27 @@ export function MultiuseAdmin() {
   };
   const addResource = () => {
     if (!modal || !formName.trim()) return;
-    if (modal === "file") {
-      const file = { name: formName.trim(), path: formName.trim(), kind: "file" as const, content: "" };
-      setFiles((items) => [...items, file]); setSelectedFile(file.path); setFileDraft(""); setEditingFile(true);
+    if (modal === "file" || modal === "folder") {
+      const name = formName.trim().replace(/^\/+|\/+$/g, "");
+      if (!name || name === "." || name === ".." || name.includes("/")) {
+        notify("Укажите имя без символа /");
+        return;
+      }
+      const path = directoryPath ? `${directoryPath}/${name}` : name;
+      if (files.some((file) => file.path === path)) {
+        notify("Файл или папка с таким именем уже существует");
+        return;
+      }
+      const file: DefaultFile = { name, path, kind: modal === "folder" ? "folder" : "file", content: "" };
+      setFiles((items) => [...items, file]);
+      if (file.kind === "file") {
+        setSelectedFile(file.path); setFileDraft(""); setEditingFile(true);
+      }
     }
     if (modal === "model") setModels((items) => [...items, { name: formName.trim(), provider: formDetail.trim() || "Новый провайдер", id: formId.trim() || "model-id", description: "Добавлена в макете", enabled: true }]);
     if (modal === "skill") setSkills((items) => [...items, { name: formName.trim(), description: formDetail.trim() || "Описание навыка", enabled: true }]);
     if (modal === "tool") setTools((items) => [...items, { name: formName.trim(), description: formDetail.trim() || "Описание инструмента", enabled: true }]);
-    setModal(null); setFormName(""); setFormDetail(""); setFormId(""); notify(modal === "file" ? "Файл добавлен в макет" : "Элемент добавлен в макет");
+    setModal(null); setFormName(""); setFormDetail(""); setFormId(""); notify(modal === "file" ? "Файл добавлен в макет" : modal === "folder" ? "Папка создана в макете" : "Элемент добавлен в макет");
   };
   const removeResource = (kind: "models" | "skills" | "tools", index: number, name: string) => {
     if (!window.confirm(`Удалить «${name}»?`)) return;
@@ -188,8 +222,8 @@ export function MultiuseAdmin() {
         </section>}
 
         {activeTab === "files" && <section className={`${styles.panel} ${styles.filesPanel}`}>
-          <div className={styles.panelHeader}><div><h2>Файлы по умолчанию</h2><p>Эти файлы копируются в workspace при его создании</p></div><button className={styles.secondaryButton} onClick={() => notify("Создание папок будет подключено вместе с backend")}><Icon name="plus" size={15}/>Новая папка</button></div>
-          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span><button className={styles.iconButton} onClick={() => notify("Меню файлов будет подключено с backend")} aria-label="Действия"><Icon name="more"/></button></div>{files.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => chooseFile(file)}><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}<div className={styles.fileHint}>Файлы-шаблоны доступны всем сотрудникам. При изменении шаблона уже созданные workspace автоматически не меняются.</div></div>
+          <div className={styles.panelHeader}><div><h2>Файлы по умолчанию</h2><p>Эти файлы копируются в workspace при его создании</p></div><button className={styles.secondaryButton} onClick={addFolder}><Icon name="plus" size={15}/>Новая папка</button></div>
+          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span></div><div className={styles.fileBreadcrumbs}><button onClick={() => openDirectory("")}>Workspace</button>{directoryBreadcrumbs.map((crumb) => <Fragment key={crumb.path}><Icon name="chevron" size={12}/><button onClick={() => openDirectory(crumb.path)}>{crumb.name}</button></Fragment>)}</div>{directoryEntries.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => file.kind === "folder" ? openDirectory(file.path) : chooseFile(file)}><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}{directoryEntries.length === 0 && <div className={styles.emptyDirectory}>В этой папке пока нет файлов</div>}<div className={styles.fileHint}>Файлы-шаблоны доступны всем сотрудникам. При изменении шаблона уже созданные workspace автоматически не меняются.</div></div>
             <div className={styles.preview}><div className={styles.previewTop}><div className={styles.previewPath}><Icon name="file" size={15}/><span>{selectedFile || "Выберите файл"}</span></div><div className={styles.previewActions}>{editingFile ? <><button className={styles.secondaryButton} onClick={() => { setFileDraft(currentFile?.content || ""); setEditingFile(false); }}>Отмена</button><button className={styles.primaryButtonSmall} onClick={saveFile}><Icon name="check" size={14}/>Сохранить</button></> : <><button className={styles.iconButton} title="Удалить файл" onClick={deleteFile} disabled={!currentFile}><Icon name="trash" size={16}/></button><button className={styles.secondaryButton} onClick={() => setEditingFile(true)} disabled={!currentFile}><Icon name="edit" size={15}/>Изменить</button></>}</div></div>
               <div className={styles.previewBody}>{editingFile ? <textarea className={styles.editor} value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck={false} aria-label="Содержимое файла"/> : currentFile ? fileDraft ? <MarkdownBody className={styles.fileMarkdown}>{fileDraft}</MarkdownBody> : <div className={styles.emptyPreview}><Icon name="file" size={25}/><span>Файл пустой. Нажмите «Изменить», чтобы добавить содержимое.</span></div> : <div className={styles.emptyPreview}><Icon name="files" size={28}/><span>Выберите файл для предпросмотра</span></div>}</div>
               <div className={styles.previewFooter}><span>{editingFile ? "Режим редактирования" : "Предпросмотр файла"}</span><span>{fileDraft.length} символов</span></div></div></div>
@@ -203,6 +237,6 @@ export function MultiuseAdmin() {
       </div>
     </section>
     {toast && <div className={styles.toast} role="status">{toast}</div>}
-    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>Добавить {modal === "model" ? "модель" : modal === "skill" ? "навык" : modal === "file" ? "файл" : "инструмент"}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => setModal(null)}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "model" ? "Название модели" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "model" ? "Например, Claude Sonnet" : modal === "file" ? "Например, Инструкция.md" : "Введите название"}/></label>{modal !== "file" && <label className={styles.fieldLabel}>{modal === "model" ? "Провайдер" : "Описание"}<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={modal === "model" ? "Например, Anthropic" : "Краткое описание"}/></label>}{modal === "model" && <label className={styles.fieldLabel}>ID модели<input value={formId} onChange={(event) => setFormId(event.target.value)} placeholder="Например, claude-sonnet"/><span className={styles.fieldHint}>Подключение модели к провайдеру будет добавлено на следующем этапе.</span></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setModal(null)}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim()}><Icon name="plus"/>Добавить</button></div></form></div>}
+    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>Добавить {modal === "model" ? "модель" : modal === "skill" ? "навык" : modal === "file" ? "файл" : modal === "folder" ? "папку" : "инструмент"}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => setModal(null)}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "model" ? "Название модели" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : modal === "folder" ? "Название папки" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "model" ? "Например, Claude Sonnet" : modal === "file" ? "Например, Инструкция.md" : modal === "folder" ? "Например, Отчёты" : "Введите название"}/></label>{modal !== "file" && modal !== "folder" && <label className={styles.fieldLabel}>{modal === "model" ? "Провайдер" : "Описание"}<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={modal === "model" ? "Например, Anthropic" : "Краткое описание"}/></label>}{modal === "model" && <label className={styles.fieldLabel}>ID модели<input value={formId} onChange={(event) => setFormId(event.target.value)} placeholder="Например, claude-sonnet"/><span className={styles.fieldHint}>Подключение модели к провайдеру будет добавлено на следующем этапе.</span></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setModal(null)}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim()}><Icon name="plus"/>Добавить</button></div></form></div>}
   </main>;
 }
