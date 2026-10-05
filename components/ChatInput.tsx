@@ -19,6 +19,11 @@ import {
   isBase64ImageWithinLimits,
 } from "@/lib/image-attachments";
 import {
+  buildInboxAttachmentText,
+  uploadFilesToInbox,
+  type InboxFileAttachment,
+} from "@/lib/inbox-files";
+import {
   buildEntriesFromFiles, buildAtInsertText, extractAtQuery, filterFileEntries,
   type AtQueryMatch, type FileIndexEntry,
 } from "@/lib/file-fuzzy";
@@ -90,6 +95,8 @@ export interface ChatInputHandle {
   insertIfEmpty: (text: string) => void;
   replaceMessage: (message: UserMessage) => void;
   prependText: (text: string) => void;
+  addFiles: (files: File[]) => void;
+  /** Kept for callers that only ever hand over images. */
   addImages: (files: File[]) => void;
   rekeyDraft: (previousKey: string, nextKey: string) => void;
   restoreSubmission: (text: string, images?: ChatDraftImage[], targetDraftKey?: string) => void;
@@ -585,6 +592,10 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const [atMenuMaxHeight, setAtMenuMaxHeight] = useState<number | null>(null);
   const [atActiveIndex, setAtActiveIndex] = useState(0);
   const [imageWarningDismissed, setImageWarningDismissed] = useState(false);
+  // Files waiting to be written to, or already stored in, the workspace inbox.
+  const [inboxFiles, setInboxFiles] = useState<InboxFileAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [historyMenuOpen, setHistoryMenuOpen] = useState(false);
   const [historyActiveIndex, setHistoryActiveIndex] = useState(0);
   const [builtinCommandPending, setBuiltinCommandPending] = useState(false);
@@ -609,6 +620,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const isComposingRef = useRef(false);
   const lastCompositionEndAtRef = useRef(0);
   const slashCommandsRequestedRef = useRef(false);
+  const inboxFilesRef = useRef<InboxFileAttachment[]>(inboxFiles);
+  const pendingUploadCountRef = useRef(0);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const atMenuRef = useRef<HTMLDivElement>(null);
@@ -799,8 +812,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
       });
     },
+    addFiles(files: File[]) {
+      processFiles(files);
+    },
     addImages(files: File[]) {
-      processImageFiles(files);
+      processFiles(files);
     },
   }));
 
@@ -834,6 +850,45 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
   }, [compact]);
 
+  /**
+   * Every file that enters the chat — dropped, picked, or pasted — is first
+   * written to the workspace inbox, then images are attached inline for the
+   * model just like before.
+   */
+  const processFiles = useCallback(async (files: File[]) => {
+    if (compact || files.length === 0) return;
+    const uploadable = files.filter((file) => file.size > 0);
+    if (uploadable.length === 0) return;
+
+    pendingUploadCountRef.current += 1;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const result = await uploadFilesToInbox(uploadable, cwd ?? null);
+      if (result.saved.length > 0) {
+        setInboxFiles((prev) => {
+          const known = new Set(prev.map((file) => file.path));
+          const next = [...prev, ...result.saved.filter((file) => !known.has(file.path))];
+          inboxFilesRef.current = next;
+          return next;
+        });
+      }
+      if (result.failed.length > 0) {
+        setUploadError(t("chat.inboxUploadPartial", {
+          count: result.failed.length,
+          name: result.failed[0].name,
+        }));
+      }
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      pendingUploadCountRef.current -= 1;
+      setUploading(pendingUploadCountRef.current > 0);
+    }
+
+    await processImageFiles(uploadable);
+  }, [compact, cwd, processImageFiles, t]);
+
   const removeImage = useCallback((index: number) => {
     setAttachedImages((prev) => {
       const next = [...prev];
@@ -852,6 +907,20 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     });
   }, []);
 
+  const clearInboxFiles = useCallback(() => {
+    inboxFilesRef.current = [];
+    setInboxFiles([]);
+    setUploadError(null);
+  }, []);
+
+  const removeInboxFile = useCallback((index: number) => {
+    setInboxFiles((prev) => {
+      const next = prev.filter((_, position) => position !== index);
+      inboxFilesRef.current = next;
+      return next;
+    });
+  }, []);
+
   const clearInput = useCallback(() => {
     valueRef.current = "";
     setValue("");
@@ -860,10 +929,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (draftKey) clearDraft(draftKey);
     if (draftKeyRef.current && draftKeyRef.current !== draftKey) clearDraft(draftKeyRef.current);
     clearImages();
+    clearInboxFiles();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [clearImages, draftKey]);
+  }, [clearImages, clearInboxFiles, draftKey]);
 
   useEffect(() => {
     if (!draftKey || draftKeyRef.current !== draftKey) return;
@@ -945,15 +1015,17 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, [attachedImages.length, clearInput, onBuiltinCommand]);
 
   const handleSend = useCallback(async () => {
-    const msg = value.trim();
+    const inboxPaths = inboxFilesRef.current.map((file) => file.relativePath || file.path);
+    const msg = buildInboxAttachmentText(value, inboxPaths).trim();
     if (!msg && !attachedImages.length) return;
+    if (uploading) return;
     onAudioUnlock?.();
     const builtinAllowed = !isStreaming || canRunBuiltinSlashCommandWhileStreaming(msg);
     if (builtinAllowed && await runBuiltinCommand(msg)) return;
     if (isStreaming) return;
     clearInput();
     onSend(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, isStreaming, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
+  }, [value, attachedImages, isStreaming, uploading, runBuiltinCommand, onSend, clearInput, onAudioUnlock]);
 
   const slashQuery = !compact && value.startsWith("/") && !/\s/.test(value.slice(1))
     ? value.slice(1).toLowerCase()
@@ -987,7 +1059,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const slashCommandCountLabel = filteredSlashCommands.length === 1
     ? t(slashQuery ? "chat.match" : "chat.command")
     : t(slashQuery ? "chat.matches" : "chat.commands", { count: filteredSlashCommands.length });
-  const canSendMessage = (Boolean(value.trim()) || attachedImages.length > 0)
+  const canSendMessage = (Boolean(buildInboxAttachmentText(value, inboxFilesRef.current.map((file) => file.relativePath || file.path)).trim()) || attachedImages.length > 0)
+    && !uploading
     && (!isStreaming || Boolean(onSteer));
   // Warn when images are attached but the selected model is known not to accept
   // image input (#584), including a resolved default. Unknown models stay silent.
@@ -1183,7 +1256,9 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   }, []);
 
   const sendStreamingMessage = useCallback(() => {
-    const msg = value.trim();
+    if (uploading) return;
+    const inboxPaths = inboxFilesRef.current.map((file) => file.relativePath || file.path);
+    const msg = buildInboxAttachmentText(value, inboxPaths).trim();
     if (!msg && !attachedImages.length) return;
     onAudioUnlock?.();
     if (!attachedImages.length && onBuiltinCommand && canRunBuiltinSlashCommandWhileStreaming(msg)) {
@@ -1192,7 +1267,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     }
     clearInput();
     onSteer?.(msg, attachedImages.length ? attachedImages : undefined);
-  }, [value, attachedImages, onBuiltinCommand, onSteer, clearInput, onAudioUnlock, runBuiltinCommand]);
+  }, [value, attachedImages, uploading, onBuiltinCommand, onSteer, clearInput, onAudioUnlock, runBuiltinCommand]);
 
   const getNextSlashIndex = useCallback((direction: "up" | "down" | "left" | "right") => {
     const lastIndex = displayedSlashCommands.length - 1;
@@ -1387,7 +1462,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
     if (!compact && imageItems.length) {
       e.preventDefault();
       const files = imageItems.map((item) => item.getAsFile()).filter((f): f is File => f !== null);
-      processImageFiles(files);
+      processFiles(files);
       return;
     }
 
@@ -1421,7 +1496,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       ta.focus();
       ta.setSelectionRange(start + markdown.length, start + markdown.length);
     });
-  }, [compact, processImageFiles, updateAtQuery]);
+  }, [compact, processFiles, updateAtQuery]);
 
   useEffect(() => {
     if (slashQuery === null) {
@@ -1585,12 +1660,11 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
       {!compact && <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
         multiple
         style={{ display: "none" }}
         onChange={(e) => {
           const files = Array.from(e.target.files ?? []);
-          processImageFiles(files);
+          processFiles(files);
           e.target.value = "";
         }}
       />}
@@ -1722,6 +1796,49 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             }}
           >
             {compactError}
+          </div>
+        )}
+        {/* Files stored in the workspace inbox */}
+        {(inboxFiles.length > 0 || uploading || uploadError) && (
+          <div style={{ display: "flex", gap: 6, marginBottom: 6, flexWrap: "wrap", alignItems: "center" }}>
+            {inboxFiles.map((file, i) => (
+              <span
+                key={file.path}
+                title={file.path}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 6,
+                  maxWidth: 240, padding: "3px 6px 3px 8px",
+                  border: "1px solid var(--border)", borderRadius: 6,
+                  background: "var(--bg-panel)", color: "var(--text-dim)",
+                  fontSize: 12,
+                }}
+              >
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {file.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeInboxFile(i)}
+                  aria-label={t("chat.removeAttachment")}
+                  style={{
+                    flexShrink: 0, width: 16, height: 16, padding: 0,
+                    border: "none", background: "none", cursor: "pointer",
+                    color: "var(--text-muted)", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                  }}
+                >
+                  <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                    <line x1="1" y1="1" x2="7" y2="7" /><line x1="7" y1="1" x2="1" y2="7" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+            {uploading && (
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{t("chat.inboxUploading")}</span>
+            )}
+            {uploadError && (
+              <span style={{ fontSize: 12, color: "var(--danger, #d9534f)" }}>{uploadError}</span>
+            )}
           </div>
         )}
         {/* Image previews */}
@@ -2231,24 +2348,24 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
           <div style={{ flex: isMobile ? "1 1 auto" : "0 0 auto", minWidth: 0, display: "flex", alignItems: "center", gap: 2 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
-             title={t("chat.attachImage")}
+             title={t("chat.attachFile")}
               style={{
                 flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
                 width: 32, height: 32, padding: 0,
                 background: "none", border: "none",
                 borderRadius: 9,
-                color: attachedImages.length ? "var(--accent)" : "var(--text-muted)",
+                color: attachedImages.length || inboxFiles.length ? "var(--accent)" : "var(--text-muted)",
                 cursor: "pointer",
                 opacity: 1,
                 transition: "background 0.12s, color 0.12s",
               }}
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = "var(--bg-hover)";
-                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text)";
+                e.currentTarget.style.color = attachedImages.length || inboxFiles.length ? "var(--accent)" : "var(--text)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "none";
-                e.currentTarget.style.color = attachedImages.length ? "var(--accent)" : "var(--text-muted)";
+                e.currentTarget.style.color = attachedImages.length || inboxFiles.length ? "var(--accent)" : "var(--text-muted)";
               }}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
