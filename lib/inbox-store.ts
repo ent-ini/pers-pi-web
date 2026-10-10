@@ -7,7 +7,7 @@ import path from "path";
  * somewhere else (for example a shared drop directory) with PI_WEB_INBOX_DIR.
  */
 export const INBOX_DIR_NAME = "inbox";
-export const MAX_INBOX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_INBOX_FILE_BYTES = 100 * 1024 * 1024;
 export const MAX_INBOX_TOTAL_BYTES = 100 * 1024 * 1024;
 
 const UNSAFE_NAME_CHARS = /[\u0000-\u001f\u007f\\/:*?"<>|]/g;

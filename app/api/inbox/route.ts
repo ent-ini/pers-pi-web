@@ -12,6 +12,7 @@ import {
 
 // Multipart boundaries and headers are not file bytes, but must be bounded too.
 const MAX_INBOX_REQUEST_BYTES = MAX_INBOX_TOTAL_BYTES + 1024 * 1024;
+const MAX_INBOX_FILE_MB = MAX_INBOX_FILE_BYTES / (1024 * 1024);
 
 /**
  * POST /api/inbox?cwd=<workspace>
@@ -58,7 +59,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No files selected" }, { status: 400 });
   }
   if (files.some((file) => file.size > MAX_INBOX_FILE_BYTES)) {
-    return NextResponse.json({ error: "Each upload must be 25MB or smaller" }, { status: 413 });
+    return NextResponse.json(
+      { error: `Each upload must be ${MAX_INBOX_FILE_MB}MB or smaller` },
+      { status: 413 },
+    );
   }
   if (files.reduce((total, file) => total + file.size, 0) > MAX_INBOX_TOTAL_BYTES) {
     return NextResponse.json({ error: "Uploads must total 100MB or less" }, { status: 413 });
