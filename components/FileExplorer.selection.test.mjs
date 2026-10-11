@@ -28,6 +28,6 @@ test("keeps pinned dot entries visible while hidden files are off", () => {
   // Roots are fetched with hidden entries included; only the unpinned section
   // applies the hidden-files filter, so a stored pin can override it.
   assert.match(source, /fetchEntries\(cwd, true\)/);
-  assert.match(source, /!pinnedRootNames\.has\(node\.name\)[\s\S]*?showHidden \|\| !node\.name\.startsWith\("\."\)/);
+  assert.match(source, /!pinnedRootNames\.has\(node\.name\)[\s\S]*?showHidden \|\| \(!node\.name\.startsWith\("\."\) && !node\.hidden\)/);
   assert.match(source, /pinnedRootNodes\.map\(\(node\) =>/);
 });

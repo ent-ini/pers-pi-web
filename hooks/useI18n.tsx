@@ -67,7 +67,7 @@ export function I18nProvider({ children, initialLocale }: { children: React.Reac
   }, []);
 
   const t = useCallback((key: string, params?: TranslationParams) => translateMessage(locale, key, messages, params), [locale, messages]);
-  const value = useMemo(() => ({ locale: hydrated ? locale : defaultLocale, setLocale, t, supportedLocales }), [hydrated, locale, setLocale, t, supportedLocales]);
+  const value = useMemo(() => ({ locale: hydrated ? locale : (initialLocale ?? defaultLocale), setLocale, t, supportedLocales }), [hydrated, initialLocale, locale, setLocale, t, supportedLocales]);
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
