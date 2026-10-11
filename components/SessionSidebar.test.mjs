@@ -169,12 +169,14 @@ test("on a desktop the files sit below the sessions by default, both in view", (
   // Without a folder the files' search has nothing to search.
   assert.match(render(), /<button type="button" disabled="" title="Search files" aria-label="Search files" aria-expanded="false" aria-controls="file-search-input" class="sidebar-tool-button">/);
 
-  // The layout: the desktop's choice; phones always take the tabs.
-  assert.match(source, /const filesPlacement = useFilesPlacement\(\);\s*const stacked = !isMobile && filesPlacement === "below";/);
+  // The setting applies on phones too, instead of silently forcing tabs.
+  assert.match(source, /const filesPlacement = useFilesPlacement\(\);\s*const stacked = filesPlacement === "below";/);
+  assert.match(source, /const currentSessions = useMemo\(\s*\(\) => sessionsInCurrentProject\(allSessions, currentProjectKey\)/);
+  assert.match(source, /rows=\{sessionRows\}/);
   assert.match(source, /const treeLoading = loading \|\| !uiStateLoaded;/);
 });
 
-test("the tabs layout (the setting, phones) is the two tabs as before, in the same element tree", () => {
+test("the tabs layout (the setting on any screen) keeps the two tabs in the same element tree", () => {
   // Tabs: only the two tabs are the tablist, each an icon and a label, the
   // inactive panel hidden, both panels named by their tabs.
   assert.match(source, /\{!stacked && \(\s*<div className="sidebar-tabs-list" role="tablist" aria-label=\{t\("sidebar\.tabsLabel"\)\}>/);
@@ -197,6 +199,8 @@ test("the tabs layout (the setting, phones) is the two tabs as before, in the sa
     "{stacked && <PiWebTitle onWidthChange={fitHeader} />}",
     "{!stacked && (\n          <div className=\"sidebar-tabs-list\"",
     'id="session-sidebar-panel-sessions"',
+    '<div className="sidebar-current-project">',
+    'handleRef={sessionsPickerRef}',
     '<div className="sidebar-sessions-views">',
     '<div className="sidebar-sessions-view" hidden={archiveMotion.mainHidden} inert={archiveMotion.mainInert}>',
     "{archiveMotion.archiveMounted && (",
@@ -206,7 +210,7 @@ test("the tabs layout (the setting, phones) is the two tabs as before, in the sa
     '<div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>',
     '<div id="session-sidebar-files-body" className="sidebar-files-body" hidden={stacked && filesFold.bodyHidden} inert={stacked && filesFold.bodyInert}>',
     '<div className="sidebar-files-head">',
-    "<ProjectWorktreePicker",
+    'handleRef={filesPickerRef}',
     "{!stacked && explorerCwd && (\n              <div className=\"sidebar-files-actions\"",
     '<div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle">',
     "<SidebarMenu",
@@ -217,9 +221,9 @@ test("the tabs layout (the setting, phones) is the two tabs as before, in the sa
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
   assert.equal((source.match(/<FileExplorer\n/g) ?? []).length, 1);
   assert.equal((source.match(/<SessionTree\n/g) ?? []).length, 1);
-  assert.equal((source.match(/<ProjectWorktreePicker\n/g) ?? []).length, 1);
+  assert.equal((source.match(/<ProjectWorktreePicker\n/g) ?? []).length, 2);
   assert.equal((source.match(/<PiWebTitle /g) ?? []).length, 1);
-  // The picker is one instance in both layouts: only its layout prop differs.
+  // Each picker remains mounted across layout changes; the sessions path stays above its list.
   assert.match(source, /<ProjectWorktreePicker\s*handleRef=\{filesPickerRef\}\s*layout=\{stacked \? "row" : "stacked"\}/);
   // Only the folder decides whether the explorer is mounted.
   assert.match(source, /\{explorerCwd && \(\s*<FileExplorer/);
@@ -337,7 +341,7 @@ test("the fold and the archive view move only when the user folds or goes in or 
   assert.match(source, /className="sidebar-panel sidebar-files-panel"\s*onScrollCapture=\{rememberScroll\}\s*onTransitionEnd=\{\(event\) => \{ if \(event\.target === event\.currentTarget && event\.propertyName === "height"\) endFilesFold\(\); \}\}/);
   assert.match(source, /inert=\{archiveMotion\.archiveInert\}\s*onAnimationEnd=\{\(event\) => \{ if \(event\.target === event\.currentTarget\) endArchiveMotion\(\); \}\}/);
   // The archive leaves as it was, not empty.
-  assert.match(source, /const archiveRows = useMemo\(\(\) => \(archiveMounted \? buildArchiveRows\(/);
+  assert.match(source, /const archiveRows = useMemo\(\(\) => \(archiveMounted \? currentProjectRows\(buildArchiveRows\(/);
   assert.match(source, /className=\{`sidebar-sessions-view sidebar-archive-view\$\{archiveMotion\.archiveClass \? ` \$\{archiveMotion\.archiveClass\}` : ""\}`\}/);
 
   // The fold's height moves only under .is-files-folding (never a drag, keys,
@@ -1108,7 +1112,7 @@ test("the footer opens the project list in the files; the archive view replaces 
   assert.match(source, /onOpenArchive: openArchiveView,/);
   // The sessions tab, in the tabs layout (switchTab does nothing below the files).
   assert.match(callbackBody("openArchiveView"), /setArchiveView\(true\);[\s\S]*?setSessionSearchOpen\(false\);\s*switchTab\("sessions"\);/);
-  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{model\.rows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
+  assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
   assert.match(source, /<SessionTree \{\.\.\.treeProps\} rows=\{archiveRows\} emptyLabel=\{t\("sidebar\.noArchived"\)\} \/>/);
   assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);

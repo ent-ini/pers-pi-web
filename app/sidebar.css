@@ -1433,6 +1433,20 @@
   transform: rotate(-90deg);
 }
 
+/* The old sidebar's directory selector sits above the sessions it filters,
+   whether files are in a separate tab or beneath the sessions. */
+.sidebar-current-project {
+  flex: none;
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-current-project > .project-picker-button {
+  width: 100%;
+  cursor: default;
+}
+
 /* Files tab: the folder in use (the stacked project picker's two boxes,
    app/globals.css) and what is done with it, then a line and the tree. */
 .sidebar-files-head {

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 
-/** Where the desktop sidebar shows the file browser: under the sessions, or behind its own tab. Phones always use tabs. */
+/** Where the sidebar shows the file browser: under the sessions, or behind its own tab (on every screen size). */
 export type FilesPlacement = "below" | "tab";
 
 export const FILES_PLACEMENT_STORAGE_KEY = "pi-web:sidebar-files-placement";

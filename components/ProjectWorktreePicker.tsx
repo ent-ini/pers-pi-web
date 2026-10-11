@@ -71,6 +71,8 @@ interface Props {
   placeholder?: string;
   /** Shown as ~ in the boxes' paths. */
   homeDir?: string;
+  /** Session-list header always shows the directory path, even if it has a custom alias. */
+  showPath?: boolean;
   /** Running and unread counts by project key: badges in the project menu, and a dot in the files' project box for activity elsewhere. */
   projectActivity?: ReadonlyMap<string, { running: number; unread: number }>;
   /** The files' (stacked or row), without a worktree list: a disabled box saying why (a subdirectory of a checkout, still checking). None for a folder outside git: the project box alone. */
@@ -205,6 +207,7 @@ export function ProjectWorktreePicker({
   label,
   placeholder = "",
   homeDir,
+  showPath = false,
   projectActivity,
   worktreeHint = null,
   newWorktreeTitle,
@@ -536,7 +539,7 @@ export function ProjectWorktreePicker({
             {project.alias === undefined && projectName?.note && <><span className="project-picker-parent">{projectName.note}</span>/</>}
             <span className="project-picker-leaf">{project.alias ?? projectName?.name ?? projectNameOf(project.root)}</span>
           </span>
-        ) : project?.alias !== undefined ? (
+        ) : project?.alias !== undefined && !showPath ? (
           <span className="project-picker-label is-alias">{project.alias}</span>
         ) : project ? (
           <span className="project-picker-path"><span>{displayPath(project.root, homeDir)}</span></span>

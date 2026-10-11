@@ -56,7 +56,7 @@ export const enLocale: LocalePlugin = {
     "settings.filesPlacement": "File browser",
     "settings.filesPlacementBelow": "Below sessions",
     "settings.filesPlacementTab": "Separate tab",
-    "settings.filesPlacementDescription": "Phones always use tabs.",
+    "settings.filesPlacementDescription": "Choose where files appear on any screen size.",
     "settings.languageDescription": "Choose the language used throughout the interface.",
     "settings.shellTool": "Shell tool",
     "settings.shellToolDescription": "Choose which shell the model uses for commands. Direct ! and !! commands still use Bash.",

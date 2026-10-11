@@ -74,6 +74,14 @@ test("inline: the project's name and the branch as text, no path and no notes", 
   assert.doesNotMatch(render({ homeDir: "/home/me" }) + render({ layout: "row" }), /project-picker-name|<svg width="12"/);
 });
 
+test("session header displays the directory path even with a custom project alias", () => {
+  const named = { ...context, project: { ...context.project, alias: "My project" } };
+  assert.match(render({ context: named, layout: "row" }), /class="project-picker-label is-alias">My project<\/span>/);
+  const header = render({ context: named, layout: "row", showPath: true, homeDir: "/home/me" });
+  assert.match(header, /class="project-picker-path"><span>~\/work\/app<\/span>/);
+  assert.doesNotMatch(header, /class="project-picker-label is-alias"/);
+});
+
 test("row: the files' boxes below the sessions, side by side, with everything the stacked ones have", () => {
   const activity = new Map([["lib-key", { running: 1, unread: 0 }]]);
   const hint = { label: "Open repo root", title: "Open the repository root to manage worktrees." };
