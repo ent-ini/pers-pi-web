@@ -1,8 +1,10 @@
 /**
  * Per-browser choice of the minimap's lock toggle: while locked, hovering the
- * minimap does not open the turn preview. ChatWindow remounts per session, so
- * the choice lives here rather than in component state. Best-effort
- * localStorage: privacy mode or quota errors fall back to unlocked.
+ * minimap does not open the turn preview. Locked is the default, so the
+ * preview opens only for someone who has explicitly asked for it. ChatWindow
+ * remounts per session, so the choice lives here rather than in component
+ * state. Best-effort localStorage: privacy mode or quota errors fall back to
+ * locked.
  */
 
 const STORAGE_KEY = "pi-web:minimap-preview-locked";
@@ -22,11 +24,13 @@ function getBrowserStorage(): StorageLike | null {
 }
 
 export function loadMinimapPreviewLocked(storage: StorageLike | null = getBrowserStorage()): boolean {
-  if (!storage) return false;
+  // Locked unless the browser holds an explicit "false": a stored choice wins,
+  // a first visit and an unreadable store stay locked.
+  if (!storage) return true;
   try {
-    return storage.getItem(STORAGE_KEY) === "true";
+    return storage.getItem(STORAGE_KEY) !== "false";
   } catch {
-    return false;
+    return true;
   }
 }
 
