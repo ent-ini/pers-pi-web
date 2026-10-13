@@ -12,11 +12,17 @@ export default function manifest(): MetadataRoute.Manifest {
     start_url: "/",
     scope: "/",
     display: "standalone",
-    background_color: "#ffffff",
+    background_color: "#181b1d",
     theme_color: "#1a1a1a",
     categories: ["developer", "productivity"],
     lang: "ru",
     icons: [
+      {
+        src: "/apple-touch-icon.png",
+        sizes: "180x180",
+        type: "image/png",
+        purpose: "any",
+      },
       {
         src: "/icons/icon-192.png",
         sizes: "192x192",
@@ -28,6 +34,14 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
+      },
+      // Maskable variants must keep the glyph inside the safe zone; iOS ignores
+      // them, Android launchers need them to avoid clipping the artwork.
+      {
+        src: "/icons/icon-maskable-512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable",
       },
     ],
   };

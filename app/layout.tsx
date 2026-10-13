@@ -27,9 +27,12 @@ export const metadata: Metadata = {
         type: "image/png",
       },
     ],
+    // iOS caches the home-screen icon per URL for as long as the web app is
+    // installed, so the touch icon lives at the canonical root path: when the
+    // artwork changes the path changes too and a re-added app refetches it.
     apple: [
       {
-        url: "/icons/apple-touch-icon.png",
+        url: "/apple-touch-icon.png",
         sizes: "180x180",
         type: "image/png",
       },

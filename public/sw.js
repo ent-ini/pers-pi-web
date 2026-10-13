@@ -4,9 +4,10 @@ const STATIC_CACHE = `${CACHE_PREFIX}-static-${CACHE_VERSION}`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "/icons/apple-touch-icon.png",
+  "/icons/icon-maskable-512.png",
 ];
 // A reachable port backed by a dead upstream accepts the connection and then
 // never answers: fetch() neither resolves nor rejects, so the navigation hangs

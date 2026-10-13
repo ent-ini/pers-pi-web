@@ -181,9 +181,10 @@ test("install precaches offline assets but not the runtime manifest", async () =
 
   assert.deepEqual(precached, [
     "/offline.html",
+    "/apple-touch-icon.png",
     "/icons/icon-192.png",
     "/icons/icon-512.png",
-    "/icons/apple-touch-icon.png",
+    "/icons/icon-maskable-512.png",
   ]);
   assert.equal(skipped, true);
 });
