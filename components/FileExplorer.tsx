@@ -1014,7 +1014,8 @@ export const FileExplorer = forwardRef<FileExplorerHandle, Props>(function FileE
     return () => { cancelled = true; };
   }, [cwd, refreshKey, showHidden, treeRefreshKey]);
 
-  // Refresh entries modified by external editors on window focus.
+// Files changed outside pi-web (an editor, a terminal) show up once the
+  // window is back in front (#1144).
   useEffect(() => {
     const refresh = () => setTreeRefreshKey((key) => key + 1);
     window.addEventListener("focus", refresh);
