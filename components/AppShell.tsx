@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect, useLayoutEffect, useMemo } fr
 import { useRouter, useSearchParams } from "next/navigation";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { SessionSidebar, type SelectSessionOptions, type SessionSidebarControl } from "./SessionSidebar";
+import type { SidebarMenuItem } from "./SidebarMenu";
 import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
@@ -22,7 +23,7 @@ import { newTerminalTab, restoreTerminalTabs, TERMINAL_TABS_KEY, type TerminalTa
 import { useTheme } from "@/hooks/useTheme";
 import { useFontPreferences } from "@/hooks/useFontPreferences";
 import { useI18n } from "@/hooks/useI18n";
-import { useIsMobile, useIsNarrowMobile } from "@/hooks/useIsMobile";
+import { useIsMobile } from "@/hooks/useIsMobile";
 import { useViewportHeight } from "@/hooks/useViewportHeight";
 import { useResizablePanel } from "@/hooks/useResizablePanel";
 import { useAudio } from "@/hooks/useAudio";
@@ -47,6 +48,7 @@ import {
   type NewSessionTarget,
   type ProjectChoice,
 } from "@/lib/new-session-context";
+import type { SidebarRow } from "@/lib/session-tree";
 import {
   clearLastOpen,
   getLastOpenSession,
@@ -107,7 +109,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   useFontPreferences();
   const { locale, t: translate } = useI18n();
   const isMobile = useIsMobile();
-  const isNarrowMobile = useIsNarrowMobile();
   useViewportHeight();
 
   // Once the user has granted notification permission, register a Web Push
@@ -227,7 +228,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   useEffect(() => {
     if (!rightPanelOpen || isMobile) setRightPanelExpanded(false);
   }, [rightPanelOpen, isMobile]);
-  const [mobileToolbarMoreOpen, setMobileToolbarMoreOpen] = useState(false);
   const [mobileSidebarReady, setMobileSidebarReady] = useState(false);
   const sidebarWidthRef = useRef(SIDEBAR_DEFAULT_WIDTH);
   const rightPanelWidthRef = useRef(RIGHT_PANEL_FALLBACK_WIDTH);
@@ -299,7 +299,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   const chatInputRef = useRef<ChatInputHandle | null>(null);
   const [pendingQuotePrompt, setPendingQuotePrompt] = useState<{ sessionId: string; text: string } | null>(null);
   const topBarRef = useRef<HTMLDivElement>(null);
-  const mobileToolbarRef = useRef<HTMLDivElement>(null);
   // Branch navigator state — populated by ChatWindow via onBranchDataChange
   const [branchTree, setBranchTree] = useState<SessionTreeNode[]>([]);
   const [branchActiveLeafId, setBranchActiveLeafId] = useState<string | null>(null);
@@ -392,21 +391,14 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     if (rightPanelFullWidth) setActiveTopPanel(null);
   }, [rightPanelFullWidth]);
 
-  const toggleTopPanel = useCallback((
-    panel: "agents" | "branches" | "system" | "tools" | "session",
-    keepMobileToolbarOpen = false,
-  ) => {
+  const toggleTopPanel = useCallback((panel: "agents" | "branches" | "system" | "tools" | "session") => {
     if (isMobile) setSidebarOpen(false);
     setActiveTopPanel((cur) => cur === panel ? null : panel);
-    if (isMobile && isNarrowMobile && keepMobileToolbarOpen) setMobileToolbarMoreOpen(true);
-  }, [isMobile, isNarrowMobile]);
+  }, [isMobile]);
 
-  const handleSystemInfoToggle = useCallback((
-    panel: "system" | "tools",
-    keepMobileToolbarOpen = false,
-  ) => {
+  const handleSystemInfoToggle = useCallback((panel: "system" | "tools") => {
     const opening = activeTopPanel !== panel;
-    toggleTopPanel(panel, keepMobileToolbarOpen);
+    toggleTopPanel(panel);
     if (!opening || systemInfoLoading) return;
 
     const load = systemInfoLoaderRef.current;
@@ -424,7 +416,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
 
   const openSessionStatsPanel = useCallback(() => {
     if (isMobile) setSidebarOpen(false);
-    setMobileToolbarMoreOpen(false);
     setActiveTopPanel("session");
   }, [isMobile]);
 
@@ -434,10 +425,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   }, []);
 
   const handleSidebarToggle = useCallback(() => {
-    if (isMobile) {
-      setActiveTopPanel(null);
-      setMobileToolbarMoreOpen(false);
-    }
+    if (isMobile) setActiveTopPanel(null);
     setSidebarOpen((open) => {
       const next = !open;
       if (!isMobile) desktopSidebarOpenRef.current = next;
@@ -445,17 +433,10 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     });
   }, [isMobile]);
 
-  const handleMobileToolbarMoreToggle = useCallback(() => {
-    setSidebarOpen(false);
-    setActiveTopPanel(null);
-    setMobileToolbarMoreOpen((open) => !open);
-  }, []);
-
   const handleRightPanelToggle = useCallback(() => {
     if (isMobile) {
       setSidebarOpen(false);
       setActiveTopPanel(null);
-      setMobileToolbarMoreOpen(false);
     }
     setRightPanelOpen((open) => !open);
   }, [isMobile]);
@@ -464,33 +445,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     setActiveTopPanel(null);
     setRightPanelExpanded((expanded) => !expanded);
   }, []);
-
-  useEffect(() => {
-    if (!mobileToolbarMoreOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const toolbar = mobileToolbarRef.current;
-      if (toolbar && event.composedPath().includes(toolbar)) return;
-      setMobileToolbarMoreOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      setMobileToolbarMoreOpen(false);
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [mobileToolbarMoreOpen]);
-
-  useEffect(() => {
-    setMobileToolbarMoreOpen(false);
-  }, [isMobile, isNarrowMobile, selectedSession?.id, newSessionDraftId]);
 
   useEffect(() => {
     if (!activeTopPanel || !topBarRef.current) return;
@@ -1195,14 +1149,56 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     });
   }, [fileTabs, terminalTabs, agentTabs]);
 
-  const handleViewFullHistory = useCallback(() => {
-    if (!selectedSession) return;
+  // Personal fork: the two chat actions live in a session's context menu
+  // (right-click a row), not in the top bar. Full history works on any saved
+  // session; a title is generated through the same endpoint the toolbar used.
+  const openSessionHistory = useCallback((sessionId: string) => {
     window.open(
-      `/api/sessions/${encodeURIComponent(selectedSession.id)}/export?inline=1`,
+      `/api/sessions/${encodeURIComponent(sessionId)}/export?inline=1`,
       "_blank",
       "noopener,noreferrer",
     );
-  }, [selectedSession]);
+  }, []);
+
+  const handleRowChatActions = useCallback((row: Extract<SidebarRow, { kind: "session" }>): SidebarMenuItem[] => {
+    const session = row.family.root;
+    if (session.transient) return [];
+    const current = selectedSession?.id === session.id;
+    const naming = autoNameStatus.kind === "naming";
+    const hasMessages = Boolean((sessionStats?.userMessages ?? 0) > 0 || session.messageCount > 0);
+    return [
+      {
+        type: "item",
+        id: "full-history",
+        label: translate("history.label"),
+        icon: (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+            <path d="M3 3v5h5" />
+            <path d="M12 7v5l3 2" />
+          </svg>
+        ),
+        onSelect: () => openSessionHistory(session.id),
+      },
+      {
+        type: "item",
+        id: "generate-title",
+        label: current && naming ? translate("title.generating") : translate("title.generate"),
+        disabled: current && (naming || !hasMessages),
+        icon: (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="m15 4 5 5L7 22l-5-5Z" />
+            <path d="m14 5 5 5" />
+          </svg>
+        ),
+        onSelect: () => {
+          if (current) { void handleAutoName(); return; }
+          void fetch(`/api/sessions/${encodeURIComponent(session.id)}/auto-name`, { method: "POST" })
+            .then(() => { setRefreshKey((key) => key + 1); });
+        },
+      },
+    ];
+  }, [autoNameStatus.kind, handleAutoName, openSessionHistory, selectedSession?.id, sessionStats?.userMessages, translate]);
 
   // Show chat area if a session is selected, or if we have a cwd to start a new session in
   const effectiveNewSessionCwd = newSessionCwd ?? (selectedSession === null && activeCwd ? activeCwd : null);
@@ -1378,6 +1374,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         onBackgroundTaskDone={handleBackgroundTaskDone}
         onRunningSessionIdsChange={handleRunningSessionIdsChange}
         onSessionsChange={handleSessionsChange}
+        onRowChatActions={handleRowChatActions}
       />
       <div style={{ padding: "8px", flexShrink: 0, display: "flex", justifyContent: "space-between", gap: 4 }}>
         {([
@@ -1489,149 +1486,10 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     if (!mobile && !showChat) return null;
     return (
       <div style={{ display: "flex", alignItems: "stretch", height: "100%" }}>
-        <button
-          type="button"
-          onClick={() => {
-            handleViewFullHistory();
-            if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-          }}
-          disabled={!selectedSession}
-          title={selectedSession ? translate("history.full") : translate("history.unsaved")}
-          aria-label={translate("history.full")}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 6,
-            width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-            height: "100%",
-            padding: mobile ? 0 : "0 12px",
-            background: "none",
-            border: "none",
-            borderTop: "2px solid transparent",
-            borderRight: "1px solid var(--border)",
-            color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-            cursor: selectedSession ? "pointer" : "not-allowed",
-            opacity: selectedSession ? 1 : 0.45,
-            flexShrink: 0,
-            fontSize: 11,
-            whiteSpace: "nowrap",
-            transition: "color 0.1s, background 0.1s, opacity 0.1s",
-          }}
-          onMouseEnter={(event) => {
-            if (!selectedSession) return;
-            event.currentTarget.style.color = "var(--text)";
-            event.currentTarget.style.background = "var(--bg-hover)";
-          }}
-          onMouseLeave={(event) => {
-            event.currentTarget.style.color = selectedSession ? "var(--text-muted)" : "var(--text-dim)";
-            event.currentTarget.style.background = "none";
-          }}
-          data-mobile-toolbar-action={mobile ? "history" : undefined}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{
-              color: selectedSession ? "var(--text-muted)" : "var(--text-dim)",
-              flexShrink: 0,
-            }}
-            aria-hidden="true"
-          >
-            <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-            <path d="M3 3v5h5" />
-            <path d="M12 7v5l3 2" />
-          </svg>
-          {!mobile && <span>{translate("history.label")}</span>}
-        </button>
-        {(() => {
-          // 上下文压缩后当前消息可能不再包含 user 消息，需同时参考会话文件的消息总数。
-          const hasMessages = Boolean(
-            selectedSession
-            && ((sessionStats?.userMessages ?? 0) > 0 || selectedSession.messageCount > 0),
-          );
-          const disabled = !selectedSession || selectedSession.transient || !hasMessages || autoNameStatus.kind === "naming";
-          const isSuccess = autoNameStatus.kind === "success";
-          const isError = autoNameStatus.kind === "error";
-          const label = autoNameStatus.kind === "naming"
-            ? translate("title.generating")
-            : isSuccess
-              ? translate("title.updated")
-              : isError
-                ? translate("title.failed")
-                : translate("title.generate");
-          const title = !selectedSession || selectedSession.transient
-            ? translate("title.unsaved")
-            : !hasMessages
-              ? translate("title.noMessages")
-              : isError
-                ? autoNameStatus.message
-                : translate("title.generateSession");
-
-          return (
-            <button
-              type="button"
-              onClick={() => {
-                void handleAutoName();
-                if (mobile && isNarrowMobile) setMobileToolbarMoreOpen(true);
-              }}
-              disabled={disabled}
-              title={title}
-              aria-label={label}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                width: mobile ? TOP_BAR_ICON_BUTTON_SIZE : undefined,
-                height: "100%", padding: mobile ? 0 : "0 12px",
-                background: "none", border: "none",
-                borderTop: "2px solid transparent",
-                borderRight: "1px solid var(--border)",
-                color: isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)",
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled && autoNameStatus.kind !== "naming" ? 0.45 : 1,
-                flexShrink: 0, fontSize: 11, whiteSpace: "nowrap",
-                transition: "color 0.1s, background 0.1s, opacity 0.1s",
-              }}
-              onMouseEnter={(event) => {
-                if (disabled) return;
-                event.currentTarget.style.color = isError ? "#dc2626" : "var(--text)";
-                event.currentTarget.style.background = "var(--bg-hover)";
-              }}
-              onMouseLeave={(event) => {
-                event.currentTarget.style.color = isError ? "#dc2626" : isSuccess ? "var(--accent)" : disabled ? "var(--text-dim)" : "var(--text-muted)";
-                event.currentTarget.style.background = "none";
-              }}
-              data-mobile-toolbar-action={mobile ? "name" : undefined}
-            >
-              {autoNameStatus.kind === "naming" ? (
-                <svg className="animate-spin" width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                  <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              ) : isSuccess ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="m15 4 5 5L7 22l-5-5Z" />
-                  <path d="m14 5 5 5" />
-                  <path d="M6 4V2M5 3H3M19 19v3M17.5 20.5h3" />
-                </svg>
-              )}
-              {!mobile && <span>{label}</span>}
-            </button>
-          );
-        })()}
         {hasSubagentSessions && (
           <button
             type="button"
-            onClick={() => toggleTopPanel("agents", mobile)}
+            onClick={() => toggleTopPanel("agents")}
             title={translate("agentSwitcher.title")}
             aria-label={translate("agentSwitcher.title")}
             aria-pressed={activeTopPanel === "agents"}
@@ -1670,7 +1528,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         {sessionHasBranches && (mobile ? (
           <button
             type="button"
-            onClick={() => toggleTopPanel("branches", true)}
+            onClick={() => toggleTopPanel("branches")}
             title={translate("i18n.branches")}
             aria-label={translate("i18n.branches")}
             aria-pressed={activeTopPanel === "branches"}
@@ -1709,7 +1567,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         <button
           ref={systemBtnRef}
           type="button"
-          onClick={() => handleSystemInfoToggle("system", mobile)}
+          onClick={() => handleSystemInfoToggle("system")}
           disabled={mobile && !showChat}
           title={translate("system.prompt")}
           aria-label={translate("system.prompt")}
@@ -1746,7 +1604,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         </button>
         <button
           type="button"
-          onClick={() => handleSystemInfoToggle("tools", mobile)}
+          onClick={() => handleSystemInfoToggle("tools")}
           disabled={mobile && !showChat}
           title={translate("tools.title")}
           aria-label={translate("tools.title")}
@@ -1820,7 +1678,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
       tooltipParts.push(`context: ${percent !== null ? percent.toFixed(1) + "%" : "unknown"} of ${contextUsage.contextWindow.toLocaleString()} tokens`);
     }
     const tooltip = tooltipParts.join("  |  ");
-    const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
+    const covered = false;
     const hasMobileValues = Boolean(
       (tokens && (tokens.input > 0 || tokens.output > 0))
       || costText
@@ -1946,7 +1804,8 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   };
 
   const renderMainFileToggle = (mobile: boolean) => {
-    const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;
+    // Personal fork: no "more controls" layer can cover the bar any more.
+    const covered = false;
     return (
       <button
         type="button"
@@ -2151,7 +2010,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
           </button>
           {isMobile && (
             <div
-              ref={mobileToolbarRef}
               data-mobile-toolbar="true"
               style={{
                 position: "relative",
@@ -2162,63 +2020,11 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
                 height: "100%",
               }}
             >
-              {isNarrowMobile && (
-                <button
-                  type="button"
-                  onClick={handleMobileToolbarMoreToggle}
-                  title={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                  aria-label={mobileToolbarMoreOpen ? translate("chat.close") : translate("chat.moreControls")}
-                  aria-controls="mobile-toolbar-actions"
-                  aria-expanded={mobileToolbarMoreOpen}
-                  data-mobile-toolbar-more="true"
-                  style={{
-                    position: "relative",
-                    zIndex: mobileToolbarMoreOpen ? 21 : undefined,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    width: TOP_BAR_ICON_BUTTON_SIZE, height: TOP_BAR_ICON_BUTTON_SIZE, padding: 0,
-                    background: mobileToolbarMoreOpen ? "var(--bg-selected)" : "none",
-                    border: "none", borderRight: "1px solid var(--border)",
-                    color: mobileToolbarMoreOpen ? "var(--text)" : "var(--text-muted)",
-                    cursor: "pointer", flexShrink: 0, transition: "color 0.12s, background 0.12s",
-                  }}
-                >
-                  {mobileToolbarMoreOpen ? (
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                      <line x1="5" y1="5" x2="19" y2="19" /><line x1="19" y1="5" x2="5" y2="19" />
-                    </svg>
-                  ) : (
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                      <circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" />
-                    </svg>
-                  )}
-                </button>
-              )}
-              {!isNarrowMobile && renderChatToolbarActions(true)}
+              {/* Personal fork: the actions sit in the bar itself on every
+                  phone — no "more controls" placeholder, no overlay layer. */}
+              {renderChatToolbarActions(true)}
               {renderSessionStatsButton(true)}
               {renderMainFileToggle(true)}
-              {isNarrowMobile && mobileToolbarMoreOpen && (
-                <div
-                  id="mobile-toolbar-actions"
-                  role="toolbar"
-                  aria-label={translate("chat.moreControls")}
-                  data-mobile-toolbar-actions="true"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    right: 0,
-                    bottom: 0,
-                    left: TOP_BAR_ICON_BUTTON_SIZE,
-                    zIndex: 20,
-                    display: "flex",
-                    alignItems: "stretch",
-                    background: "color-mix(in srgb, var(--bg-panel) 94%, var(--bg))",
-                    boxShadow: "4px 0 18px rgba(0,0,0,0.12)",
-                    backdropFilter: "blur(10px)",
-                  }}
-                >
-                  {renderChatToolbarActions(true)}
-                </div>
-              )}
             </div>
           )}
           {!isMobile && (

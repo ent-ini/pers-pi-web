@@ -7,14 +7,14 @@ const source = fs.readFileSync(new URL("./AppShell.tsx", import.meta.url), "utf8
 test("压缩后的会话仍可根据持久化消息数生成标题", () => {
   assert.match(
     source,
-    /\(sessionStats\?\.userMessages \?\? 0\) > 0 \|\| selectedSession\.messageCount > 0/,
+    /\(sessionStats\?\.userMessages \?\? 0\) > 0 \|\| session\.messageCount > 0/,
   );
 });
 
 test("尚未落盘的会话不会触发依赖 JSONL 的自动命名", () => {
   assert.match(
     source,
-    /const disabled = !selectedSession \|\| selectedSession\.transient \|\| !hasMessages/,
+    /const hasMessages = Boolean\(\(sessionStats\?\.userMessages \?\? 0\) > 0 \|\| session\.messageCount > 0\);[\s\S]*?disabled: current && \(naming \|\| !hasMessages\)/,
   );
 });
 

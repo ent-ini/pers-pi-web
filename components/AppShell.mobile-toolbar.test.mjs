@@ -3,30 +3,33 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const source = await readFile(new URL("./AppShell.tsx", import.meta.url), "utf8");
-const mobileHookSource = await readFile(new URL("../hooks/useIsMobile.ts", import.meta.url), "utf8");
 
-test("keeps action icons inline in medium mobile sidebars", () => {
-  assert.match(mobileHookSource, /NARROW_MOBILE_QUERY = "\(max-width: 480px\)"/);
-  assert.match(source, /const isNarrowMobile = useIsNarrowMobile\(\);/);
-  assert.match(source, /\{!isNarrowMobile && renderChatToolbarActions\(true\)\}/);
-  assert.match(source, /\{isNarrowMobile && \([\s\S]*?data-mobile-toolbar-more="true"/);
-});
-
-test("uses a compact narrow-mobile toolbar with a floating action layer", () => {
+test("keeps the mobile action icons inline at every width (fork)", () => {
+  // Personal fork: no "more controls" placeholder and no floating action
+  // layer any more — the bar shows the same icons as the desktop one.
+  assert.doesNotMatch(source, /data-mobile-toolbar-more=/);
+  assert.doesNotMatch(source, /data-mobile-toolbar-actions=/);
+  assert.doesNotMatch(source, /useIsNarrowMobile/);
+  assert.match(source, /\{renderChatToolbarActions\(true\)\}/);
   assert.match(source, /data-mobile-toolbar="true"[\s\S]*?flex: 1,[\s\S]*?minWidth: 0/);
-  assert.match(
-    source,
-    /data-mobile-toolbar-actions="true"[\s\S]*?position: "absolute"[\s\S]*?right: 0,[\s\S]*?left: TOP_BAR_ICON_BUTTON_SIZE/,
-  );
 
-  for (const action of ["history", "name", "agents", "branches", "system", "tools"]) {
+  for (const action of ["agents", "branches", "system", "tools"]) {
     assert.match(source, new RegExp(`data-mobile-toolbar-action=(?:\\{mobile \\? )?"${action}"`));
   }
 });
 
+test("the chat's two actions moved out of the top bar into a row's menu", () => {
+  assert.doesNotMatch(source, /data-mobile-toolbar-action=(?:\{mobile \? )?"history"/);
+  assert.doesNotMatch(source, /data-mobile-toolbar-action=(?:\{mobile \? )?"name"/);
+  assert.match(source, /const handleRowChatActions = useCallback\(/);
+  assert.match(source, /id: "full-history"/);
+  assert.match(source, /id: "generate-title"/);
+  assert.match(source, /onRowChatActions=\{handleRowChatActions\}/);
+});
+
 test("only renders the Agents switcher when the active session family has subagents", () => {
   assert.match(source, /const hasSubagentSessions = Boolean\(activeSessionFamily\?\.subagents\.length\)/);
-  assert.match(source, /\{hasSubagentSessions && \(\s*<button[\s\S]*?toggleTopPanel\("agents", mobile\)/);
+  assert.match(source, /\{hasSubagentSessions && \(\s*<button[\s\S]*?toggleTopPanel\("agents"\)/);
   assert.match(source, /activeTopPanel === "agents" && activeSessionFamily && selectedSession/);
 });
 
@@ -47,34 +50,10 @@ test("only renders branch toolbar controls for sessions with branches", () => {
 });
 
 test("keeps covered statistics and file controls out of interaction and focus", () => {
-  assert.match(source, /const covered = mobile && isNarrowMobile && mobileToolbarMoreOpen;/);
+  assert.match(source, /const covered = false;/);
   assert.match(source, /disabled=\{!showChat \|\| covered\}[\s\S]*?tabIndex=\{covered \? -1 : undefined\}/);
   assert.match(source, /data-mobile-toolbar-file=\{mobile \? "true" : undefined\}[\s\S]*?visibility: covered \? "hidden" : "visible"/);
   assert.match(source, /aria-hidden=\{covered \? true : undefined\}/);
-});
-
-test("closes the mobile action layer on outside click, Escape, layout changes, and session changes", () => {
-  assert.match(source, /event\.composedPath\(\)\.includes\(toolbar\)/);
-  assert.match(source, /document\.addEventListener\("pointerdown", handlePointerDown, true\)/);
-  assert.match(source, /event\.key !== "Escape"[\s\S]*?setMobileToolbarMoreOpen\(false\)/);
-  assert.match(source, /\}, \[isMobile, isNarrowMobile, selectedSession\?\.id, newSessionDraftId\]\);/);
-});
-
-test("keeps the mobile action layer open after using an expanded action", () => {
-  const toggleTopPanel = source.match(/const toggleTopPanel = useCallback\([\s\S]*?\n  \}, \[isMobile, isNarrowMobile\]\);/)?.[0];
-  const historyHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?handleViewFullHistory\(\);[\s\S]*?\n          \}\}/)?.[0];
-  const autoNameHandler = source.match(/onClick=\{\(\) => \{[\s\S]*?void handleAutoName\(\);[\s\S]*?\n              \}\}/)?.[0];
-
-  for (const handler of [toggleTopPanel, historyHandler, autoNameHandler]) {
-    assert.ok(handler);
-    assert.doesNotMatch(handler, /setMobileToolbarMoreOpen\(false\)/);
-    assert.match(handler, /setMobileToolbarMoreOpen\(true\)/);
-  }
-
-  assert.match(source, /toggleTopPanel\("branches", true\)/);
-  assert.match(source, /handleSystemInfoToggle\("system", mobile\)/);
-  assert.match(source, /handleSystemInfoToggle\("tools", mobile\)/);
-  assert.match(source, /onClick=\{\(\) => toggleTopPanel\("session"\)\}/);
 });
 
 test("keeps theme and language in settings instead of the chat toolbar", () => {

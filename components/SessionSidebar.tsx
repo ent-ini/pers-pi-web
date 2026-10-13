@@ -216,6 +216,9 @@ interface Props {
   onBackgroundTaskDone?: () => void;
   onRunningSessionIdsChange?: (ids: Set<string>) => void;
   onSessionsChange?: (sessions: SessionInfo[]) => void;
+  /** Personal fork: extra leading entries of a row's menu (Full history, Generate
+   *  a title) — the shell owns them, the sidebar only renders them. */
+  onRowChatActions?: (row: SessionRow) => SidebarMenuItem[];
 }
 
 /**
@@ -448,7 +451,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, skipInitialProjectSelection, autoSelectDefaultCwd = false, lockedWorkspace = false, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, skipInitialProjectSelection, autoSelectDefaultCwd = false, lockedWorkspace = false, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange, onRowChatActions }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -1983,21 +1986,25 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     else filesPickerRef.current?.button("project")?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
-  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => sessionMenuEntries(row.context, row.status).map((entry, index) => {
-    if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
-    const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
-    return {
-      type: "item",
-      id: entry.id,
-      label: entry.id === "delete" ? `${label}…` : label,
-      icon: sessionActionIcon(entry.id),
-      shortcut: entry.shortcut,
-      danger: entry.id === "delete",
-      disabled: entry.disabledReason !== undefined,
-      disabledReason: entry.disabledReason === "running" ? t("sidebar.cannotArchiveRunning") : undefined,
-      onSelect: ({ shiftKey }) => runSessionAction(entry.id, row, shiftKey),
-    };
-  });
+  const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => {
+    const chatActions = onRowChatActions?.(row) ?? [];
+    const base = sessionMenuEntries(row.context, row.status).map((entry, index): SidebarMenuItem => {
+      if (entry.kind === "separator") return { type: "separator", id: `separator-${index}` };
+      const label = t(SESSION_ACTION_LABEL_KEYS[entry.id]);
+      return {
+        type: "item",
+        id: entry.id,
+        label: entry.id === "delete" ? `${label}…` : label,
+        icon: sessionActionIcon(entry.id),
+        shortcut: entry.shortcut,
+        danger: entry.id === "delete",
+        disabled: entry.disabledReason !== undefined,
+        disabledReason: entry.disabledReason === "running" ? t("sidebar.cannotArchiveRunning") : undefined,
+        onSelect: ({ shiftKey }) => runSessionAction(entry.id, row, shiftKey),
+      };
+    });
+    return chatActions.length ? [...chatActions, { type: "separator", id: "separator-chat" }, ...base] : base;
+  };
 
   const groupMenuItems = (project: SidebarProject, olderCount: number): SidebarMenuItem[] => {
     const archivedCount = archiveIndex.countByProject.get(project.key) ?? 0;

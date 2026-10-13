@@ -1114,7 +1114,7 @@ test("the footer opens the project list in the files; the archive view replaces 
   assert.match(callbackBody("openArchiveView"), /setArchiveView\(true\);[\s\S]*?setSessionSearchOpen\(false\);\s*switchTab\("sessions"\);/);
   assert.match(source, /<div className="sidebar-sessions-view" hidden=\{archiveMotion\.mainHidden\} inert=\{archiveMotion\.mainInert\}>\s*<SessionTree\s+\{\.\.\.treeProps\}\s+rows=\{sessionRows\}\s+emptyLabel=\{t\("sidebar\.noSessions"\)\}\s+reveal=\{treeReveal\}\s+onRevealHandled=\{handleRevealHandled\}\s+\/>/);
   assert.match(source, /<SessionTree \{\.\.\.treeProps\} rows=\{archiveRows\} emptyLabel=\{t\("sidebar\.noArchived"\)\} \/>/);
-  assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => sessionMenuEntries\(row\.context, row\.status\)/);
+  assert.match(source, /const sessionMenuItems = \(row: SessionRow\): SidebarMenuItem\[\] => \{\s*const chatActions = onRowChatActions\?\.\(row\) \?\? \[\];\s*const base = sessionMenuEntries\(row\.context, row\.status\)\.map/);
   assert.match(callbackBody("handleTogglePinned"), /setPinnedCollapsed\(next\);\s*savePinnedCollapsed\(next\);/);
 });
 
