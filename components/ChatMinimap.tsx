@@ -649,6 +649,7 @@ export function ChatMinimap({
       }}
       style={{
         width: MINIMAP_WIDTH,
+        height: "100%",
         flexShrink: 0,
         position: "relative",
         cursor: "pointer",

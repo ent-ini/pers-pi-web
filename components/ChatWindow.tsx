@@ -1031,7 +1031,12 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         <div
           ref={scrollContainerRef}
           className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto pt-4 [scrollbar-width:none]"
-          style={{ visibility: pendingScrollRestore ? "hidden" : undefined }}
+          // The rail now spans the whole chat column (composer included), so
+          // the messages keep that gutter to themselves.
+          style={{
+            visibility: pendingScrollRestore ? "hidden" : undefined,
+            paddingRight: isMobile ? undefined : CHAT_MINIMAP_WIDTH,
+          }}
         >
           <div style={{ minWidth: 0, padding: `0 ${CHAT_COLUMN_PADDING}px` }}>
             <div ref={messageContentRef} onPointerUp={captureQuotedSelection} style={{ width: "100%", minWidth: 0, maxWidth: "var(--chat-content-max-width, 820px)", margin: "0 auto" }}>
@@ -1341,16 +1346,6 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
             </div>
           </div>
         </div>
-        {isMobile || pendingScrollRestore ? null : (
-          <ChatMinimap
-            messages={messages}
-            streamingMessage={streamState.streamingMessage}
-            scrollContainer={scrollContainerRef}
-            messageRefs={messageRefs}
-            onRevealHistory={revealHistoryForMinimap}
-            turnsBefore={earlierTurnCount}
-          />
-        )}
         </>}
       </div>
 
@@ -1490,6 +1485,32 @@ export function ChatWindow({ session, searchTarget, onSearchTargetHandled, initi
         />
       </div>
       {isEmptyNew && <div className="min-h-0 flex-1" />}
+      {/* Personal fork: the rail spans the whole chat column, the composer
+          included, so its preview (z-index 100 inside this layer) opens over
+          the input rather than being cut off at its top edge. */}
+      {isMobile || pendingScrollRestore ? null : (
+        <div
+          data-minimap-rail-layer=""
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 30,
+            display: "flex",
+            alignItems: "stretch",
+          }}
+        >
+          <ChatMinimap
+            messages={messages}
+            streamingMessage={streamState.streamingMessage}
+            scrollContainer={scrollContainerRef}
+            messageRefs={messageRefs}
+            onRevealHistory={revealHistoryForMinimap}
+            turnsBefore={earlierTurnCount}
+          />
+        </div>
+      )}
     </div>
   );
 }
