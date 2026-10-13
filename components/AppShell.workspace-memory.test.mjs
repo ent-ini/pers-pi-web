@@ -365,8 +365,10 @@ test("only a fresh composer moves from the bar, and only somewhere else", () => 
   // So does "Use default directory": today's folder, validated by the sidebar.
   assert.match(source, /openDefaultDirectoryForNewSession\(\(target\) => pickNewSessionContextRef\.current\(target, "project"\)\)/);
   assert.match(source, /onUseDefaultDirectory=\{handleDefaultDirectoryForNewSession\}/);
-  // The bar exists only for a fresh composer, and gets the composer's cwd even while the sidebar's report lags.
-  assert.match(source, /const newSessionContextBar = !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd \? \(\s*<NewSessionContextBar\s*context=\{contextForCwd\(sidebarNewSessionContext, effectiveNewSessionCwd, newSessionMoveRef\.current\)\}/);
+  // Personal fork: the bar is not rendered (a new session starts in the cwd
+  // the sidebar already has), but its construction and plumbing stay.
+  assert.match(source, /const showNewSessionContextBar = false;/);
+  assert.match(source, /const newSessionContextBar = !showNewSessionContextBar && !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd \? \(\s*<NewSessionContextBar\s*context=\{contextForCwd\(sidebarNewSessionContext, effectiveNewSessionCwd, newSessionMoveRef\.current\)\}/);
   assert.match(source, /controlRef=\{sidebarControlRef\}\s*onNewSessionContextChange=\{handleSidebarNewSessionContext\}/);
   assert.match(source, /newSessionContextBar=\{newSessionContextBar\}\s*initialNewSessionChoices=\{selectedSession === null \? carriedNewSessionChoices : null\}\s*onNewSessionChoicesChange=\{handleNewSessionChoicesChange\}/);
   // The composer that takes the carried picks reports them on mount, which clears them.

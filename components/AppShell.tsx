@@ -1248,7 +1248,12 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   const handleNewSessionBarFocusDone = useCallback(() => {
     newSessionBarFocusRef.current = null;
   }, []);
-  const newSessionContextBar = !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd ? (
+  // Personal fork: the folder/worktree pick above a fresh composer is not
+  // rendered — a new session starts in the cwd the sidebar already has. The
+  // bar itself and its plumbing stay (upstream's own tests still cover them);
+  // only its render is switched off at the ChatWindow call below.
+  const showNewSessionContextBar = false;
+  const newSessionContextBar = !showNewSessionContextBar && !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd ? (
     <NewSessionContextBar
       context={contextForCwd(sidebarNewSessionContext, effectiveNewSessionCwd, newSessionMoveRef.current)}
       mobile={isMobile}
