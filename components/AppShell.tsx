@@ -1249,7 +1249,7 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   // bar itself and its plumbing stay (upstream's own tests still cover them);
   // only its render is switched off at the ChatWindow call below.
   const showNewSessionContextBar = false;
-  const newSessionContextBar = !showNewSessionContextBar && !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd ? (
+  const newSessionContextBar = showNewSessionContextBar && !lockedWorkspace && selectedSession === null && effectiveNewSessionCwd ? (
     <NewSessionContextBar
       context={contextForCwd(sidebarNewSessionContext, effectiveNewSessionCwd, newSessionMoveRef.current)}
       mobile={isMobile}
