@@ -45,7 +45,6 @@ const COMMAND_OPTIONS = {
   open: { port: { type: "string", short: "p" } },
   update: { check: { type: "boolean" } },
 };
-
 function getHelpText() {
   return `Usage: pi-web [command] [options]
 

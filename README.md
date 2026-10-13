@@ -45,7 +45,6 @@ node bin/pi-web.js --mode single
 ```
 
 If no model provider is configured yet, open the **Models** panel to sign in or add an API key. To install the upstream `pi-web` command globally, use `npm install -g @agegr/pi-web@latest`.
-
 Commands:
 
 ```bash
