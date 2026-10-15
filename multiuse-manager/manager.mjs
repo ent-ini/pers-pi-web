@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { chmod, chown, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { resolve, sep } from "node:path";
 import { request as dockerRequest } from "node:http";
+import { createTemplateStore } from "./template-store.mjs";
 
 const socketPath = "/var/run/docker.sock";
 const dataRoot = "/data/pi-web/users";
@@ -11,6 +11,7 @@ const image = process.env.PI_WEB_WORKER_IMAGE || "pi-web-multi-pi-web:latest";
 const secret = process.env.PI_WEB_WORKER_MANAGER_SECRET || "";
 const network = process.env.PI_WEB_WORKER_NETWORK || "pi-web-internal";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const templateStore = createTemplateStore(templateRoot);
 
 if (secret.length < 32) throw new Error("PI_WEB_WORKER_MANAGER_SECRET must be at least 32 characters.");
 
@@ -38,12 +39,6 @@ function containerName(employeeId) { return `pi_worker_${employeeId.replaceAll("
 function safeEmployeeId(value) {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error("Invalid employee identifier.");
   return value.toLowerCase();
-}
-function safePath(root, value) {
-  if (typeof value !== "string" || !value || value.length > 512 || value.includes("\0")) throw new Error("Invalid path.");
-  const target = resolve(root, value);
-  if (target === root || !target.startsWith(`${root}${sep}`)) throw new Error("Path must stay inside the template.");
-  return target;
 }
 async function chownTree(path) {
   const info = await stat(path);
@@ -119,16 +114,6 @@ async function ensureWorker(identity) {
   } else if (!info.State.Running) await start(name);
   const url = `http://${name}:30141`; await waitForWorker(url); return url;
 }
-async function templateTree(directory = templateRoot, prefix = "") {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const result = [];
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
-    result.push({ path, type: entry.isDirectory() ? "directory" : "file" });
-    if (entry.isDirectory()) result.push(...await templateTree(`${directory}/${entry.name}`, path));
-  }
-  return result;
-}
 async function resetWorkspace(employeeId) {
   employeeId = safeEmployeeId(employeeId);
   const root = `${dataRoot}/${employeeId}`;
@@ -150,7 +135,6 @@ createServer(async (request, response) => {
   const url = new URL(request.url, "http://manager");
   try {
     if (request.method === "POST" && url.pathname === "/workers/ensure") return send(response, 200, { url: await ensureWorker((await body(request)).identity) });
-    await mkdir(templateRoot, { recursive: true, mode: 0o750 });
     if (request.method === "GET" && url.pathname === "/admin/users") {
       const all = await users();
       const result = await Promise.all(Object.values(all).map(async (user) => {
@@ -160,15 +144,13 @@ createServer(async (request, response) => {
       }));
       return send(response, 200, { users: result });
     }
-    if (request.method === "GET" && url.pathname === "/admin/template/tree") return send(response, 200, { entries: await templateTree() });
-    if (request.method === "GET" && url.pathname === "/admin/template/file") return send(response, 200, { content: await readFile(safePath(templateRoot, url.searchParams.get("path")), "utf8") });
+    if (request.method === "GET" && url.pathname === "/admin/template/tree") return send(response, 200, { entries: await templateStore.list() });
+    if (request.method === "GET" && url.pathname === "/admin/template/file") return send(response, 200, { content: await templateStore.read(url.searchParams.get("path")) });
     const payload = await body(request);
-    if (request.method === "PUT" && url.pathname === "/admin/template/file") {
-      if (typeof payload.content !== "string" || payload.content.length > 1_000_000) throw new Error("Invalid file content.");
-      const target = safePath(templateRoot, payload.path); await mkdir(resolve(target, ".."), { recursive: true, mode: 0o750 }); await writeFile(target, payload.content, { mode: 0o640 }); return send(response, 200, { ok: true });
-    }
-    if (request.method === "POST" && url.pathname === "/admin/template/directory") { await mkdir(safePath(templateRoot, payload.path), { recursive: true, mode: 0o750 }); return send(response, 200, { ok: true }); }
-    if (request.method === "DELETE" && url.pathname === "/admin/template/entry") { await rm(safePath(templateRoot, payload.path), { recursive: true, force: true }); return send(response, 200, { ok: true }); }
+    if (request.method === "PUT" && url.pathname === "/admin/template/file") { await templateStore.write(payload.path, payload.content); return send(response, 200, { ok: true }); }
+    if (request.method === "POST" && url.pathname === "/admin/template/file") { await templateStore.createFile(payload.path); return send(response, 201, { ok: true }); }
+    if (request.method === "POST" && url.pathname === "/admin/template/directory") { await templateStore.createDirectory(payload.path); return send(response, 200, { ok: true }); }
+    if (request.method === "DELETE" && url.pathname === "/admin/template/entry") { await templateStore.remove(payload.path); return send(response, 200, { ok: true }); }
     if (request.method === "POST" && /^\/admin\/users\/[^/]+\/reset-workspace$/.test(url.pathname)) { await resetWorkspace(url.pathname.split("/")[3]); return send(response, 200, { ok: true }); }
     return send(response, 404, { error: "Not found" });
   } catch (error) { console.error("[worker-manager] request failed", error); return send(response, 400, { error: error instanceof Error ? error.message : "Request failed" }); }
