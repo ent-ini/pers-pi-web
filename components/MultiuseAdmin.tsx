@@ -89,6 +89,9 @@ export function MultiuseAdmin() {
   const [fileDraft, setFileDraft] = useState(initialFiles[1].content || "");
   const [editingFile, setEditingFile] = useState(false);
   const [models, setModels] = useState(initialModels);
+  // UI-only for now: the backend for this setting does not exist yet, so it
+  // lives in component state and resets on reload.
+  const [ownModelsAllowed, setOwnModelsAllowed] = useState(false);
   const [skills, setSkills] = useState(initialSkills);
   const [tools, setTools] = useState(initialTools);
   const [search, setSearch] = useState("");
@@ -252,6 +255,17 @@ export function MultiuseAdmin() {
             <div className={styles.preview}><div className={styles.previewTop}><div className={styles.previewPath}><Icon name="file" size={15}/><span>{selectedFile || "Выберите файл"}</span></div><div className={styles.previewActions}>{editingFile ? <><button className={styles.secondaryButton} onClick={() => { setFileDraft(currentFile?.content || ""); setEditingFile(false); }}>Отмена</button><button className={styles.primaryButtonSmall} onClick={saveFile}><Icon name="check" size={14}/>Сохранить</button></> : <><button className={styles.iconButton} title="Удалить файл" onClick={deleteFile} disabled={!currentFile}><Icon name="trash" size={16}/></button><button className={styles.secondaryButton} onClick={() => setEditingFile(true)} disabled={!currentFile}><Icon name="edit" size={15}/>Изменить</button></>}</div></div>
               <div className={styles.previewBody}>{editingFile ? <textarea className={styles.editor} value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck={false} aria-label="Содержимое файла"/> : currentFile ? fileDraft ? <MarkdownBody className={styles.fileMarkdown}>{fileDraft}</MarkdownBody> : <div className={styles.emptyPreview}><Icon name="file" size={25}/><span>Файл пустой. Нажмите «Изменить», чтобы добавить содержимое.</span></div> : <div className={styles.emptyPreview}><Icon name="files" size={28}/><span>Выберите файл для предпросмотра</span></div>}</div>
               <div className={styles.previewFooter}><span>{editingFile ? "Режим редактирования" : "Предпросмотр файла"}</span><span>{fileDraft.length} символов</span></div></div></div>
+        </section>}
+
+        {activeTab === "models" && <section className={`${styles.panel} ${styles.section}`}>
+          <div className={styles.panelHeader}><div><h2>Модели сотрудников</h2><p>Кто и как может подключать модели в AI-чате</p></div><span className={styles.countLabel}>{ownModelsAllowed ? "Свои модели разрешены" : "Только модели компании"}</span></div>
+          <div className={styles.list}><div className={styles.listItem}>
+            <div className={`${styles.resourceIcon} ${styles.modelIcon}`}><Icon name="models"/></div>
+            <div className={styles.listCopy}><strong>Разрешить подключать собственные модели</strong><span>Сотрудник сможет добавить свой провайдер и использовать его модели в чате</span></div>
+            <Badge tone={ownModelsAllowed ? "green" : "neutral"}>{ownModelsAllowed ? "Разрешено" : "Запрещено"}</Badge>
+            <button className={`${styles.switch} ${ownModelsAllowed ? styles.switchOn : ""}`} aria-label="Разрешить сотрудникам подключать собственные модели" aria-checked={ownModelsAllowed} role="switch" onClick={() => { setOwnModelsAllowed((value) => !value); notify(ownModelsAllowed ? "Подключение своих моделей запрещено" : "Сотрудникам разрешено подключать свои модели"); }}><i/></button>
+          </div></div>
+          <div className={styles.panelEnd}><span className={styles.sectionNote}>Настройка пока не сохраняется: серверная часть будет добавлена на следующем этапе, до этого переключатель сбрасывается после перезагрузки страницы.</span></div>
         </section>}
 
         {activeTab === "models" && <section className={styles.resourceGrid}>{models.map((model, index) => <article className={styles.resourceCard} key={`${model.id}-${index}`}><div className={styles.resourceTop}><div className={`${styles.resourceIcon} ${styles.modelIcon}`}><Icon name="models" size={19}/></div><button className={styles.iconButton} aria-label={`Удалить ${model.name}`} onClick={() => removeResource("models", index, model.name)}><Icon name="trash" size={16}/></button></div><div className={styles.modelProvider}>{model.provider}</div><h2>{model.name}</h2><p>{model.description}</p><div className={styles.resourceMeta}><code>{model.id}</code><label className={styles.switchLabel}><span>{model.enabled ? "Доступна" : "Выключена"}</span><button className={`${styles.switch} ${model.enabled ? styles.switchOn : ""}`} aria-label={`${model.enabled ? "Отключить" : "Включить"} модель ${model.name}`} aria-checked={model.enabled} role="switch" onClick={() => toggleResource("models", index)}><i/></button></label></div></article>)}<button className={styles.addCard} onClick={() => { setModal("model"); setFormName(""); setFormDetail(""); setFormId(""); }}><span><Icon name="plus" size={20}/></span><strong>Добавить модель</strong><small>Настроить модель для сотрудников</small></button></section>}
