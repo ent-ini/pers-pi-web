@@ -24,6 +24,8 @@
   --on-green: #ffffff;
   --green-wash: #eaf3ed;
   --green-wash-2: #edf4ef;
+  --avatar-bg: #edf4ef;
+  --avatar-ink: #2f684e;
   --brand-mark-bg: #e6f1e9;
   --brand-mark-ink: #2f7654;
   --nav-ink: #68736b;
@@ -84,76 +86,80 @@
 :global(html[data-theme="dark"]) .centerState,
 :global(html[data-theme="pine"]) .admin,
 :global(html[data-theme="pine"]) .centerState {
-  --canvas: #10160f;
-  --surface: #161d18;
-  --surface-2: #1d2620;
-  --surface-3: #131a15;
-  --surface-row-hover: #18211b;
-  --line: #28322c;
-  --line-soft: #222b25;
-  --line-faint: #202a24;
-  --ink: #e4ebe6;
-  --ink-soft: #cdd8d1;
-  --muted: #8c988f;
-  --muted-2: #93a096;
-  --muted-3: #7d8a81;
-  --green: #4c9a77;
-  --green-dark: #5bb08a;
-  --green-ink: #8ccbab;
-  --on-green: #0c1a12;
-  --green-wash: #1a2b22;
-  --green-wash-2: #1c2f25;
-  --brand-mark-bg: #1c2f25;
-  --brand-mark-ink: #8ccbab;
-  --nav-ink: #98a49c;
-  --count-bg: #202a24;
-  --count-bg-active: #234034;
-  --count-ink: #8ccbab;
-  --badge-neutral-bg: #212a25;
-  --badge-neutral-ink: #a7b3ab;
-  --badge-green-bg: #1a3327;
-  --badge-green-ink: #8ccbab;
-  --badge-amber-bg: #33280f;
+  /* Dark is not a second brand palette: it is the pi-web dark theme itself
+     (neutral greys + the shared accent), so the admin matches the chat UI. */
+  --canvas: var(--bg);
+  --surface: var(--bg-panel);
+  --surface-2: var(--bg-hover);
+  --surface-3: var(--bg);
+  --surface-row-hover: var(--bg-panel);
+  --line: var(--border);
+  --line-soft: #333333;
+  --line-faint: var(--bg-hover);
+  --ink: var(--text);
+  --ink-soft: var(--text);
+  --muted: var(--text-muted);
+  --muted-2: var(--text-dim);
+  --muted-3: #8c8c8c;
+  --green: var(--accent);
+  --green-dark: var(--accent-hover);
+  --green-ink: var(--accent);
+  --on-green: var(--accent-contrast);
+  --green-wash: var(--bg-hover);
+  --green-wash-2: var(--bg-selected);
+  --avatar-bg: var(--bg-hover);
+  --avatar-ink: var(--text);
+  --brand-mark-bg: var(--bg-hover);
+  --brand-mark-ink: var(--accent);
+  --nav-ink: var(--text-muted);
+  --count-bg: var(--bg-hover);
+  --count-bg-active: var(--bg-selected);
+  --count-ink: var(--accent);
+  --badge-neutral-bg: var(--bg-hover);
+  --badge-neutral-ink: var(--text-muted);
+  --badge-green-bg: #22303f;
+  --badge-green-ink: var(--accent);
+  --badge-amber-bg: #38301d;
   --badge-amber-ink: #e0b46a;
-  --badge-blue-bg: #1b2433;
-  --badge-blue-ink: #93aad6;
-  --notice-bg: #16211b;
-  --notice-line: #25332b;
-  --notice-ink: #a3b2a9;
-  --notice-icon-bg: #1f3329;
-  --notice-icon-ink: #8ccbab;
+  --badge-blue-bg: #22303f;
+  --badge-blue-ink: var(--accent);
+  --notice-bg: var(--bg-panel);
+  --notice-line: var(--border);
+  --notice-ink: var(--text-muted);
+  --notice-icon-bg: var(--bg-hover);
+  --notice-icon-ink: var(--accent);
   --stat-status-ink: #e0b46a;
   --stat-status-dot: #d9a44a;
   --status-dot: #d9a44a;
-  --input-border: #2f3a33;
-  --input-ink: #e4ebe6;
-  --input-hover-bg: #1d2620;
-  --input-hover-line: #3a473e;
-  --focus-line: #4f8168;
-  --focus-ring: #17251e;
-  --code-bg: #1c2420;
-  --code-ink: #97a49c;
-  --kbd-bg: #1a211d;
-  --switch-off: #39443e;
-  --switch-on: #4c9a77;
-  --switch-knob: #e8eee9;
-  --soft-circle: #1e2a23;
-  --model-icon-bg: #241f33;
-  --model-icon-ink: #ab97d9;
-  --skill-icon-bg: #2a2135;
-  --skill-icon-ink: #b298d8;
-  --tool-icon-bg: #1d2735;
-  --tool-icon-ink: #90a9d6;
-  --toast-bg: #22302a;
-  --toast-ink: #e4ebe6;
+  --input-border: var(--border);
+  --input-ink: var(--text);
+  --input-hover-bg: var(--bg-hover);
+  --input-hover-line: var(--bg-selected);
+  --focus-line: var(--accent);
+  --focus-ring: #22303f;
+  --code-bg: var(--bg-hover);
+  --code-ink: var(--text-muted);
+  --kbd-bg: var(--bg);
+  --switch-off: var(--border);
+  --switch-on: var(--accent);
+  --switch-knob: #e8e8e8;
+  --soft-circle: var(--bg-hover);
+  --model-icon-bg: #262626;
+  --model-icon-ink: var(--text-dim);
+  --skill-icon-bg: #262626;
+  --skill-icon-ink: var(--text-dim);
+  --tool-icon-bg: #262626;
+  --tool-icon-ink: var(--text-dim);
+  --toast-bg: var(--bg-panel);
+  --toast-ink: var(--text);
   --overlay: #00000099;
-  --modal-line: #2a342e;
+  --modal-line: var(--border);
   --modal-shadow: 0 18px 60px #0000008c;
   --toast-shadow: 0 8px 26px #00000073;
-  --denied-bg: #2e1a17;
+  --denied-bg: #3a2020;
   --denied-ink: #e59384;
-  --markdown-ink: #d3ddd6;
-  --markdown-heading: #eaf1ec;
+  --markdown-ink: var(--text);
+  --markdown-heading: var(--text);
   color-scheme: dark;
 }
 
@@ -383,8 +389,8 @@
   display: grid;
   place-items: center;
   border-radius: 50%;
-  background: var(--green-wash-2);
-  color: var(--green-ink);
+  background: var(--avatar-bg);
+  color: var(--avatar-ink);
   font-size: 12px;
   font-weight: 700;
 }
@@ -1126,6 +1132,7 @@
 
 .switchOn i {
   transform: translateX(13px);
+  background: var(--on-green);
 }
 
 .addCard {
