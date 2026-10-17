@@ -1220,6 +1220,42 @@
   border-top: 1px solid var(--line-faint);
 }
 
+.fileContextMenu {
+  position: fixed;
+  z-index: 40;
+  width: 188px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+
+.fileContextMenu button {
+  width: 100%;
+  height: 33px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 9px;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 11px;
+  text-align: left;
+}
+
+.fileContextMenu button:hover {
+  background: var(--surface-2);
+}
+
+.fileContextMenu .contextDanger {
+  color: var(--danger, #a45347);
+}
+
+.fileContextMenu .contextDanger:hover {
+  background: color-mix(in srgb, var(--danger, #a45347) 10%, transparent);
+}
+
 .toast {
   position: fixed;
   right: 24px;

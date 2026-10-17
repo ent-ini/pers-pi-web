@@ -150,6 +150,7 @@ createServer(async (request, response) => {
     if (request.method === "PUT" && url.pathname === "/admin/template/file") { await templateStore.write(payload.path, payload.content); return send(response, 200, { ok: true }); }
     if (request.method === "POST" && url.pathname === "/admin/template/file") { await templateStore.createFile(payload.path); return send(response, 201, { ok: true }); }
     if (request.method === "POST" && url.pathname === "/admin/template/directory") { await templateStore.createDirectory(payload.path); return send(response, 200, { ok: true }); }
+    if (request.method === "PATCH" && url.pathname === "/admin/template/entry") { await templateStore.rename(payload.path, payload.name); return send(response, 200, { ok: true }); }
     if (request.method === "DELETE" && url.pathname === "/admin/template/entry") { await templateStore.remove(payload.path); return send(response, 200, { ok: true }); }
     if (request.method === "POST" && /^\/admin\/users\/[^/]+\/reset-workspace$/.test(url.pathname)) { await resetWorkspace(url.pathname.split("/")[3]); return send(response, 200, { ok: true }); }
     return send(response, 404, { error: "Not found" });

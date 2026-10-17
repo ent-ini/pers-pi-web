@@ -12,6 +12,7 @@ const roles: Record<string, string> = { admin: "Администратор", tec
 const workerLabels: Record<Employee["worker"], string> = { running: "Работает", stopped: "Остановлен", "not-created": "Не создан", unknown: "Недоступен" };
 const statusLabels: Record<string, string> = { active: "Активен", archived: "В архиве", inactive: "Неактивен", disabled: "Отключён" };
 type DefaultFile = { name: string; path: string; kind: "file" | "folder" };
+type FileContextMenu = { entry: DefaultFile; x: number; y: number };
 
 function parentDirectory(path: string) {
   const slash = path.lastIndexOf("/");
@@ -110,6 +111,8 @@ export function MultiuseAdmin() {
   const [fileSaving, setFileSaving] = useState(false);
   const [fileMutationPending, setFileMutationPending] = useState(false);
   const [editingFile, setEditingFile] = useState(false);
+  const [fileContextMenu, setFileContextMenu] = useState<FileContextMenu | null>(null);
+  const [renameTarget, setRenameTarget] = useState<DefaultFile | null>(null);
   const fileLoadVersion = useRef(0);
   const [models, setModels] = useState(initialModels);
   // UI-only for now: the backend for this setting does not exist yet, so it
@@ -118,7 +121,7 @@ export function MultiuseAdmin() {
   const [skills, setSkills] = useState(initialSkills);
   const [tools, setTools] = useState(initialTools);
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState<"model" | "skill" | "tool" | "file" | "folder" | null>(null);
+  const [modal, setModal] = useState<"model" | "skill" | "tool" | "file" | "folder" | "rename" | null>(null);
   const [formName, setFormName] = useState("");
   const [formDetail, setFormDetail] = useState("");
   const [formId, setFormId] = useState("");
@@ -179,6 +182,17 @@ export function MultiuseAdmin() {
   useEffect(() => {
     if (allowed) void refreshTemplateTree();
   }, [allowed, refreshTemplateTree]);
+  useEffect(() => {
+    if (!fileContextMenu) return;
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest("[data-file-context-menu]")) return;
+      setFileContextMenu(null);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setFileContextMenu(null); };
+    window.addEventListener("pointerdown", closeOnPointerDown);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => { window.removeEventListener("pointerdown", closeOnPointerDown); window.removeEventListener("keydown", closeOnEscape); };
+  }, [fileContextMenu]);
 
   const currentFile = files.find((file) => file.path === selectedFile);
   const directoryEntries = files.filter((file) => parentDirectory(file.path) === directoryPath);
@@ -224,17 +238,57 @@ export function MultiuseAdmin() {
       setFileSaving(false);
     }
   };
-  const deleteFile = async () => {
-    if (!currentFile || fileMutationPending || !window.confirm(`Удалить файл «${currentFile.name}» из шаблона?`)) return;
+  const deleteEntry = async (entry: DefaultFile) => {
+    const description = entry.kind === "folder" ? `Удалить папку «${entry.name}» вместе со всем содержимым?` : `Удалить файл «${entry.name}» из шаблона?`;
+    if (fileMutationPending || !window.confirm(description)) return;
     setFileMutationPending(true);
     try {
-      await templateRequest("entry", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: currentFile.path }) });
-      fileLoadVersion.current += 1;
-      setSelectedFile(""); setFileDraft(""); setEditingFile(false);
+      await templateRequest("entry", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: entry.path }) });
+      const isInsideDeletedFolder = entry.kind === "folder" && (directoryPath === entry.path || directoryPath.startsWith(`${entry.path}/`));
+      if (isInsideDeletedFolder) setDirectoryPath(parentDirectory(entry.path));
+      if (selectedFile === entry.path || (entry.kind === "folder" && selectedFile.startsWith(`${entry.path}/`))) {
+        fileLoadVersion.current += 1;
+        setSelectedFile(""); setFileDraft(""); setEditingFile(false);
+      }
       await refreshTemplateTree();
-      notify("Файл удалён из шаблона workspace");
+      notify(entry.kind === "folder" ? "Папка удалена из шаблона workspace" : "Файл удалён из шаблона workspace");
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Не удалось удалить файл");
+      notify(error instanceof Error ? error.message : "Не удалось удалить запись");
+    } finally {
+      setFileMutationPending(false);
+    }
+  };
+  const deleteFile = async () => { if (currentFile) await deleteEntry(currentFile); };
+  const showFileContextMenu = (event: React.MouseEvent<HTMLButtonElement>, entry: DefaultFile) => {
+    event.preventDefault();
+    if (fileMutationPending) return;
+    setFileContextMenu({ entry, x: Math.max(8, Math.min(event.clientX, window.innerWidth - 196)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - 98)) });
+  };
+  const openRename = (entry: DefaultFile) => {
+    setFileContextMenu(null);
+    setRenameTarget(entry); setFormName(entry.name); setModal("rename");
+  };
+  const renameEntry = async () => {
+    if (!renameTarget || fileMutationPending) return;
+    const name = formName.trim();
+    if (!name || name === "." || name === ".." || name.includes("/")) {
+      notify("Укажите имя без символа /");
+      return;
+    }
+    if (name === renameTarget.name) { setModal(null); setRenameTarget(null); return; }
+    const parent = parentDirectory(renameTarget.path);
+    const newPath = parent ? `${parent}/${name}` : name;
+    if (files.some((file) => file.path === newPath)) { notify("Файл или папка с таким именем уже существует"); return; }
+    setFileMutationPending(true);
+    try {
+      await templateRequest("entry", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: renameTarget.path, name }) });
+      const remapPath = (path: string) => path === renameTarget.path ? newPath : path.startsWith(`${renameTarget.path}/`) ? `${newPath}${path.slice(renameTarget.path.length)}` : path;
+      setDirectoryPath(remapPath); setSelectedFile(remapPath);
+      await refreshTemplateTree();
+      setModal(null); setRenameTarget(null); setFormName("");
+      notify(renameTarget.kind === "folder" ? "Папка переименована" : "Файл переименован");
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Не удалось переименовать запись");
     } finally {
       setFileMutationPending(false);
     }
@@ -247,6 +301,7 @@ export function MultiuseAdmin() {
   };
   const addResource = async () => {
     if (!modal || !formName.trim()) return;
+    if (modal === "rename") { await renameEntry(); return; }
     if (modal === "file" || modal === "folder") {
       const name = formName.trim().replace(/^\/+|\/+$/g, "");
       if (!name || name === "." || name === ".." || name.includes("/")) {
@@ -319,7 +374,7 @@ export function MultiuseAdmin() {
 
         {activeTab === "files" && <section className={`${styles.panel} ${styles.filesPanel}`}>
           <div className={styles.panelHeader}><div><h2>Файлы по умолчанию</h2><p>Эти файлы копируются в workspace при его создании</p></div><button className={styles.secondaryButton} onClick={addFolder} disabled={filesLoading || fileMutationPending}><Icon name="plus" size={15}/>Новая папка</button></div>
-          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span></div><div className={styles.fileBreadcrumbs}><button onClick={() => openDirectory("")}>Workspace</button>{directoryBreadcrumbs.map((crumb) => <Fragment key={crumb.path}><Icon name="chevron" size={12}/><button onClick={() => openDirectory(crumb.path)}>{crumb.name}</button></Fragment>)}</div>{filesLoading ? <div className={styles.emptyDirectory}>Загружаем файлы…</div> : filesError ? <div className={styles.emptyDirectory} role="alert">{filesError}</div> : <>{directoryEntries.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => { if (file.kind === "folder") openDirectory(file.path); else void chooseFile(file); }}><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}{directoryEntries.length === 0 && <div className={styles.emptyDirectory}>В этой папке пока нет файлов</div>}</>}<div className={styles.fileHint}>Файлы-шаблоны доступны всем сотрудникам. При изменении шаблона уже созданные workspace автоматически не меняются.</div></div>
+          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span></div><div className={styles.fileBreadcrumbs}><button onClick={() => openDirectory("")}>Workspace</button>{directoryBreadcrumbs.map((crumb) => <Fragment key={crumb.path}><Icon name="chevron" size={12}/><button onClick={() => openDirectory(crumb.path)}>{crumb.name}</button></Fragment>)}</div>{filesLoading ? <div className={styles.emptyDirectory}>Загружаем файлы…</div> : filesError ? <div className={styles.emptyDirectory} role="alert">{filesError}</div> : <>{directoryEntries.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => { if (file.kind === "folder") openDirectory(file.path); else void chooseFile(file); }} onContextMenu={(event) => showFileContextMenu(event, file)} aria-haspopup="menu"><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}{directoryEntries.length === 0 && <div className={styles.emptyDirectory}>В этой папке пока нет файлов</div>}</>}<div className={styles.fileHint}>Файлы-шаблоны доступны всем сотрудникам. При изменении шаблона уже созданные workspace автоматически не меняются.</div></div>
             <div className={styles.preview}><div className={styles.previewTop}><div className={styles.previewPath}><Icon name="file" size={15}/><span>{selectedFile || "Выберите файл"}</span></div><div className={styles.previewActions}>{editingFile ? <><button className={styles.secondaryButton} onClick={() => { void chooseFile(currentFile!); }} disabled={fileSaving}>Отмена</button><button className={styles.primaryButtonSmall} onClick={() => { void saveFile(); }} disabled={fileSaving || fileLoading}><Icon name="check" size={14}/>{fileSaving ? "Сохраняем…" : "Сохранить"}</button></> : <><button className={styles.iconButton} title="Удалить файл" onClick={() => { void deleteFile(); }} disabled={!currentFile || fileLoading || fileMutationPending}><Icon name="trash" size={16}/></button><button className={styles.secondaryButton} onClick={() => setEditingFile(true)} disabled={!currentFile || fileLoading || fileMutationPending}><Icon name="edit" size={15}/>Изменить</button></>}</div></div>
               <div className={styles.previewBody}>{fileLoading ? <div className={styles.emptyPreview}><span>Загружаем файл…</span></div> : editingFile ? <textarea className={styles.editor} value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck={false} aria-label="Содержимое файла"/> : currentFile ? fileDraft ? <MarkdownBody className={styles.fileMarkdown}>{fileDraft}</MarkdownBody> : <div className={styles.emptyPreview}><Icon name="file" size={25}/><span>Файл пустой. Нажмите «Изменить», чтобы добавить содержимое.</span></div> : <div className={styles.emptyPreview}><Icon name="files" size={28}/><span>Выберите файл для предпросмотра</span></div>}</div>
               <div className={styles.previewFooter}><span>{editingFile ? "Режим редактирования" : "Предпросмотр файла"}</span><span>{fileDraft.length} символов</span></div></div></div>
@@ -343,7 +398,8 @@ export function MultiuseAdmin() {
         {activeTab === "tools" && <section className={styles.panel}><div className={styles.panelHeader}><div><h2>Инструменты по умолчанию</h2><p>Инструменты определяют, какие действия может выполнять помощник</p></div><span className={styles.countLabel}>{tools.filter((item) => item.enabled).length} включено</span></div><div className={styles.list}>{tools.map((tool, index) => <div className={styles.listItem} key={`${tool.name}-${index}`}><div className={`${styles.resourceIcon} ${styles.toolIcon}`}><Icon name="tools"/></div><div className={styles.listCopy}><strong>{tool.name}</strong><span>{tool.description}</span></div><Badge tone={tool.enabled ? "green" : "neutral"}>{tool.enabled ? "Включён" : "Выключен"}</Badge><button className={`${styles.switch} ${tool.enabled ? styles.switchOn : ""}`} aria-label={`${tool.enabled ? "Отключить" : "Включить"} инструмент ${tool.name}`} aria-checked={tool.enabled} role="switch" onClick={() => toggleResource("tools", index)}><i/></button><button className={styles.iconButton} aria-label={`Удалить ${tool.name}`} onClick={() => removeResource("tools", index, tool.name)}><Icon name="trash" size={16}/></button></div>)}</div><div className={styles.panelEnd}><button className={styles.secondaryButton} onClick={() => setModal("tool")}><Icon name="plus" size={15}/>Добавить инструмент</button></div></section>}
       </div>
     </section>
+    {fileContextMenu && <div className={styles.fileContextMenu} data-file-context-menu role="menu" aria-label={`Действия: ${fileContextMenu.entry.name}`} style={{ left: fileContextMenu.x, top: fileContextMenu.y }} onContextMenu={(event) => event.preventDefault()}><button role="menuitem" onClick={() => openRename(fileContextMenu.entry)}>Переименовать</button><button role="menuitem" className={styles.contextDanger} onClick={() => { const entry = fileContextMenu.entry; setFileContextMenu(null); void deleteEntry(entry); }}>Удалить</button></div>}
     {toast && <div className={styles.toast} role="status">{toast}</div>}
-    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) setModal(null); }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); void addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>Добавить {modal === "model" ? "модель" : modal === "skill" ? "навык" : modal === "file" ? "файл" : modal === "folder" ? "папку" : "инструмент"}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => setModal(null)}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "model" ? "Название модели" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : modal === "folder" ? "Название папки" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "model" ? "Например, Claude Sonnet" : modal === "file" ? "Например, Инструкция.md" : modal === "folder" ? "Например, Отчёты" : "Введите название"}/></label>{modal !== "file" && modal !== "folder" && <label className={styles.fieldLabel}>{modal === "model" ? "Провайдер" : "Описание"}<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={modal === "model" ? "Например, Anthropic" : "Краткое описание"}/></label>}{modal === "model" && <label className={styles.fieldLabel}>ID модели<input value={formId} onChange={(event) => setFormId(event.target.value)} placeholder="Например, claude-sonnet"/><span className={styles.fieldHint}>Подключение модели к провайдеру будет добавлено на следующем этапе.</span></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => setModal(null)} disabled={fileMutationPending}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim() || ((modal === "file" || modal === "folder") && fileMutationPending)}><Icon name="plus"/>{fileMutationPending && (modal === "file" || modal === "folder") ? "Сохраняем…" : "Добавить"}</button></div></form></div>}
+    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) { setModal(null); setRenameTarget(null); } }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); void addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>{modal === "rename" ? `Переименовать ${renameTarget?.kind === "folder" ? "папку" : "файл"}` : `Добавить ${modal === "model" ? "модель" : modal === "skill" ? "навык" : modal === "file" ? "файл" : modal === "folder" ? "папку" : "инструмент"}`}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => { setModal(null); setRenameTarget(null); }}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "rename" ? "Новое имя" : modal === "model" ? "Название модели" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : modal === "folder" ? "Название папки" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "rename" ? renameTarget?.name : modal === "model" ? "Например, Claude Sonnet" : modal === "file" ? "Например, Инструкция.md" : modal === "folder" ? "Например, Отчёты" : "Введите название"}/></label>{modal !== "file" && modal !== "folder" && modal !== "rename" && <label className={styles.fieldLabel}>{modal === "model" ? "Провайдер" : "Описание"}<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={modal === "model" ? "Например, Anthropic" : "Краткое описание"}/></label>}{modal === "model" && <label className={styles.fieldLabel}>ID модели<input value={formId} onChange={(event) => setFormId(event.target.value)} placeholder="Например, claude-sonnet"/><span className={styles.fieldHint}>Подключение модели к провайдеру будет добавлено на следующем этапе.</span></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => { setModal(null); setRenameTarget(null); }} disabled={fileMutationPending}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim() || ((modal === "file" || modal === "folder" || modal === "rename") && fileMutationPending)}><Icon name={modal === "rename" ? "edit" : "plus"}/>{fileMutationPending && (modal === "file" || modal === "folder" || modal === "rename") ? "Сохраняем…" : modal === "rename" ? "Переименовать" : "Добавить"}</button></div></form></div>}
   </main>;
 }

@@ -25,8 +25,14 @@ test("template store persists a nested text template and lists its real tree", a
       { path: "Инструкции/Старт.md", type: "file" },
     ]);
     assert.equal(await store.read("Инструкции/Старт.md"), "# Начало\n");
+    await store.rename("Инструкции/Старт.md", "Продолжение.md");
+    await store.rename("Инструкции", "Материалы");
+    assert.equal(await store.read("Материалы/Продолжение.md"), "# Начало\n");
+    await store.write("Материалы/README.md", "Занято");
+    await assert.rejects(store.rename("Материалы/Продолжение.md", "README.md"), /already exists/);
+    await assert.rejects(store.rename("Материалы/Продолжение.md", "../escape.md"), /Invalid entry name/);
 
-    await store.remove("Инструкции");
+    await store.remove("Материалы");
     assert.deepEqual(await store.list(), [{ path: "README.md", type: "file" }]);
   });
 });

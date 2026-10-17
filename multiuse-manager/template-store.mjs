@@ -1,5 +1,5 @@
-import { lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
 
 export const MAX_TEMPLATE_FILE_BYTES = 1_000_000;
 
@@ -16,6 +16,11 @@ export function createTemplateStore(root) {
     const target = resolve(root, value);
     if (target === root || !target.startsWith(`${root}${sep}`)) throw new Error("Path must stay inside the template.");
     return target;
+  }
+
+  function entryName(value) {
+    if (typeof value !== "string" || !value || value.length > 255 || value === "." || value === ".." || value.includes("/") || value.includes("\0")) throw new Error("Invalid entry name.");
+    return value;
   }
 
   async function ensureRoot() {
@@ -108,6 +113,22 @@ export function createTemplateStore(root) {
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") await mkdir(target, { mode: 0o750 });
         else throw error;
       }
+    },
+
+    async rename(path, name) {
+      await ensureRoot();
+      const source = pathFor(path);
+      const sourceInfo = await lstat(source);
+      if (sourceInfo.isSymbolicLink() || (!sourceInfo.isFile() && !sourceInfo.isDirectory())) throw new Error("Template entry cannot be renamed.");
+      const target = resolve(dirname(source), entryName(name));
+      if (target === source) return;
+      try {
+        await lstat(target);
+        throw new Error("Template entry already exists.");
+      } catch (error) {
+        if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
+      }
+      await rename(source, target);
     },
 
     async remove(path) {
