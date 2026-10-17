@@ -21,6 +21,7 @@
   --green: #39775d;
   --green-dark: #285e47;
   --green-ink: #2f684e;
+  --on-green: #ffffff;
   --green-wash: #eaf3ed;
   --green-wash-2: #edf4ef;
   --brand-mark-bg: #e6f1e9;
@@ -99,6 +100,7 @@
   --green: #4c9a77;
   --green-dark: #5bb08a;
   --green-ink: #8ccbab;
+  --on-green: #0c1a12;
   --green-wash: #1a2b22;
   --green-wash-2: #1c2f25;
   --brand-mark-bg: #1c2f25;
@@ -171,8 +173,6 @@
 .admin input,
 .admin textarea {
   font: inherit;
-  color: inherit;
-  background: transparent;
 }
 
 .admin button {
@@ -461,7 +461,7 @@
   border: 1px solid var(--green);
   border-radius: 8px;
   background: var(--green);
-  color: #ffffff !important;
+  color: var(--on-green) !important;
   padding: 0 14px;
   display: inline-flex;
   align-items: center;
