@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTheme } from "@/hooks/useTheme";
 import { MarkdownBody } from "./MarkdownBody";
 import styles from "./MultiuseAdmin.module.css";
 
@@ -81,6 +82,8 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     refresh: <><path d="M20 7v5h-5M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.6-2L20 12M4 12l2.8 5a7 7 0 0 0 11.6-2"/></>,
     close: <><path d="m18 6-12 12M6 6l12 12"/></>,
     check: <path d="m5 12 4 4L19 6"/>,
+    moon: <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/>,
+    sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
@@ -120,6 +123,9 @@ export function MultiuseAdmin() {
   const [formDetail, setFormDetail] = useState("");
   const [formId, setFormId] = useState("");
   const [toast, setToast] = useState("");
+  // Same `pi-theme` storage and toggle as the chat UI, so the admin remembers
+  // the choice per browser origin (admin.buhgalterboutique.ru is its own one).
+  const { isDark, setThemePreference } = useTheme();
 
   useEffect(() => {
     let mounted = true;
@@ -295,7 +301,7 @@ export function MultiuseAdmin() {
       <div className={styles.sidebarBottom}><span className={styles.statusDot} /> Настройки в разработке<br/><small>Данные сотрудников — из BPM</small></div>
     </aside>
     <section className={styles.mainArea}>
-      <header className={styles.topbar}><div className={styles.breadcrumb}>Администрирование <Icon name="chevron" size={14}/><strong>{title}</strong></div><div className={styles.topUser}><div className={styles.avatar}>{(adminUser?.fullName || "А")[0]}</div><div><strong>{adminUser?.fullName || "Администратор"}</strong><span>Команда Бухгалтер Бутик</span></div></div></header>
+      <header className={styles.topbar}><div className={styles.breadcrumb}>Администрирование <Icon name="chevron" size={14}/><strong>{title}</strong></div><div className={styles.topbarActions}><button className={styles.iconButton} aria-label={isDark ? "Включить светлую тему" : "Включить тёмную тему"} title={isDark ? "Светлая тема" : "Тёмная тема"} onClick={(event) => setThemePreference(isDark ? "light" : "dark", { x: event.clientX, y: event.clientY })}><Icon name={isDark ? "sun" : "moon"} size={17}/></button><div className={styles.topUser}><div className={styles.avatar}>{(adminUser?.fullName || "А")[0]}</div><div><strong>{adminUser?.fullName || "Администратор"}</strong><span>Команда Бухгалтер Бутик</span></div></div></div></header>
       <div className={styles.content}>
         <div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Сотрудники из BuhgalterBPM и состояние их AI-workspace." : activeTab === "files" ? "Файлы копируются в workspace при создании сотрудника." : activeTab === "models" ? "Выберите модели, доступные сотрудникам в чате." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
           {activeTab !== "users" && activeTab !== "files" && <button className={styles.primaryButton} onClick={() => { setModal(activeTab === "models" ? "model" : activeTab === "skills" ? "skill" : "tool"); setFormName(""); setFormDetail(""); setFormId(""); }}><Icon name="plus"/>Добавить {activeTab === "models" ? "модель" : activeTab === "skills" ? "навык" : "инструмент"}</button>}
