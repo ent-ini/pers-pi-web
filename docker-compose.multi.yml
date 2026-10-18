@@ -31,6 +31,7 @@ services:
     environment:
       PI_WEB_WORKER_IMAGE: pi-web-multi-pi-web:latest
       PI_WEB_WORKER_NETWORK: pi-web-internal
+      PI_WEB_WORKER_EGRESS_NETWORK: pi-web-egress
     volumes:
       # This is the only component with Docker authority. Workers themselves
       # have no Docker socket and are reachable only on the internal network.

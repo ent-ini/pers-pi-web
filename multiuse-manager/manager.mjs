@@ -5,6 +5,7 @@ import { createTemplateStore } from "./template-store.mjs";
 import { createWorkspaceTemplates, snapshotTemplate } from "./workspace-template.mjs";
 import { resetStoppedWorker, serialize } from "./workspace-reset.mjs";
 import { assertWorkerMounts, replaceWorkerImage } from "./worker-image.mjs";
+import { connectWorkerEgress, ensureEgressNetwork } from "./worker-network.mjs";
 
 const socketPath = "/var/run/docker.sock";
 const dataRoot = "/data/pi-web/users";
@@ -13,6 +14,7 @@ const registryPath = "/data/pi-web/control/users.json";
 const image = process.env.PI_WEB_WORKER_IMAGE || "pi-web-multi-pi-web:latest";
 const secret = process.env.PI_WEB_WORKER_MANAGER_SECRET || "";
 const network = process.env.PI_WEB_WORKER_NETWORK || "pi-web-internal";
+const egressNetwork = process.env.PI_WEB_WORKER_EGRESS_NETWORK || "pi-web-egress";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const templateStore = createTemplateStore(templateRoot);
 const workspaceTemplates = createWorkspaceTemplates({ stateRoot: "/data/pi-web/control/workspace-templates" });
@@ -109,6 +111,11 @@ async function ensureWorker(identity) {
   const employeeId = safeEmployeeId(identity?.id);
   await workspaceTemplates.assertHealthy(employeeId);
   const name = containerName(employeeId);
+  // An internal-only network also blocks DNS/provider HTTPS. Keep control-plane
+  // traffic private, but attach workers to a distinct outbound-only NAT bridge.
+  await serialize("egress-network", () => ensureEgressNetwork({ network: egressNetwork, docker }));
+  const connectEgress = () => connectWorkerEgress({ name, network: egressNetwork, docker });
+  const startWithEgress = async () => { await start(name); await connectEgress(); };
   // Tags move on deployment; an existing container keeps its old immutable
   // image forever unless explicitly replaced. Pin creation to the resolved ID.
   const desired = await docker("GET", `/images/${encodeURIComponent(image)}/json`);
@@ -120,7 +127,7 @@ async function ensureWorker(identity) {
     assertWorkerMounts(info, `${dataRoot}/${employeeId}`);
     const root = await prepareDirectories(employeeId);
     info = await replaceWorkerImage({
-      name, info, imageId: desired.Id, docker, start, wait: waitForWorker,
+      name, info, imageId: desired.Id, docker, start: startWithEgress, wait: waitForWorker,
       create: (imageId) => createWorker(name, root, imageId),
     });
   }
@@ -128,8 +135,9 @@ async function ensureWorker(identity) {
     const root = await prepareDirectories(employeeId);
     try { await createWorker(name, root, desired.Id); }
     catch (error) { if (!String(error).includes(" 409 ")) throw error; info = await docker("GET", `/containers/${name}/json`); }
-    if (!info || !info.State.Running) await start(name);
-  } else if (!info.State.Running) await start(name);
+    if (!info || !info.State.Running) await startWithEgress();
+  } else if (!info.State.Running) await startWithEgress();
+  await connectEgress();
   const url = `http://${name}:30141`; await waitForWorker(url);
   await serialize("registry", () => recordUser(identity));
   return url;

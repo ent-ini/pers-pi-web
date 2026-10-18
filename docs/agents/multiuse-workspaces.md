@@ -26,6 +26,12 @@ Creation/readiness failure rolls back to the previous container/name and its pri
 
 This also prevents frontend/worker SDK drift: the old 0.87.1 worker lacked `/api/sessions/ui-state` and `/api/open-in-explorer`, and its long-lived auth state could miss keys saved after chat creation. SDK 1.1.0 rereads changed credentials; `lib/provider-credential-store.test.mjs` pins saving/replacing/removing a key against the **same** ModelRuntime without restarting a chat. Never change or expose the user's real API key as a workaround.
 
+## Provider egress
+
+An internal-only Docker network prevents both provider HTTPS and external DNS (`EAI_AGAIN`), even when credentials are correct. Manager lazily creates/verifies `PI_WEB_WORKER_EGRESS_NETWORK` (default `pi-web-egress`), a labelled NAT bridge with `enable_icc=false`, and attaches workers at ensure/start time. Control-plane/manager stay off this bridge; their worker traffic continues over `pi-web-internal`. No worker port is published. Missing egress on a running worker is repaired without replacing it or touching its data. Internal, unlabelled, ICC-enabled or explicitly non-masquerading networks fail validation instead of being reused silently. This is outbound internet access, **not** a provider/domain allowlist; egress restrictions beyond that are a separate policy task.
+
+Sources: [Docker bridge options](https://docs.docker.com/engine/network/drivers/bridge/), [connect a running container](https://docs.docker.com/reference/cli/docker/network/connect/). Network lifecycle regressions: `multiuse-manager/worker-network.test.mjs`.
+
 ## Reset semantics
 
 1. Serialize ensure/reset per employee, capture the canonical snapshot, stop a running worker (including any active AI turn).
