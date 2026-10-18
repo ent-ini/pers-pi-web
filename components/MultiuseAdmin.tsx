@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTheme } from "@/hooks/useTheme";
 import { MarkdownBody } from "./MarkdownBody";
+import { CorporateModels } from "./CorporateModels";
 import styles from "./MultiuseAdmin.module.css";
 import type { AdminEmployee as Employee } from "@/lib/multiuse-admin-users";
 
@@ -38,14 +39,8 @@ function parseTemplateEntries(value: unknown): DefaultFile[] {
     return [{ path, name: path.split("/").at(-1) || path, kind: entry.type === "directory" ? "folder" : "file" }];
   });
 }
-type Model = { name: string; provider: string; id: string; description: string; enabled: boolean };
 type Resource = { name: string; description: string; enabled: boolean };
 
-const initialModels: Model[] = [
-  { name: "Claude Sonnet", provider: "Anthropic", id: "claude-sonnet", description: "Для анализа документов и повседневных задач", enabled: true },
-  { name: "GPT-4.1", provider: "OpenAI", id: "gpt-4.1", description: "Универсальная модель для работы с текстом", enabled: true },
-  { name: "Gemini Flash", provider: "Google", id: "gemini-flash", description: "Быстрые ответы и обработка больших документов", enabled: false },
-];
 const initialSkills: Resource[] = [
   { name: "Работа с таблицами", description: "Анализирует таблицы, сверяет данные и объясняет результаты.", enabled: true },
   { name: "Бухгалтерские документы", description: "Помогает разбирать первичные документы и находить ошибки.", enabled: true },
@@ -118,17 +113,12 @@ export function MultiuseAdmin() {
   const [fileContextMenu, setFileContextMenu] = useState<FileContextMenu | null>(null);
   const [renameTarget, setRenameTarget] = useState<DefaultFile | null>(null);
   const fileLoadVersion = useRef(0);
-  const [models, setModels] = useState(initialModels);
-  // UI-only for now: the backend for this setting does not exist yet, so it
-  // lives in component state and resets on reload.
-  const [ownModelsAllowed, setOwnModelsAllowed] = useState(false);
   const [skills, setSkills] = useState(initialSkills);
   const [tools, setTools] = useState(initialTools);
   const [search, setSearch] = useState("");
-  const [modal, setModal] = useState<"model" | "skill" | "tool" | "file" | "folder" | "rename" | null>(null);
+  const [modal, setModal] = useState<"skill" | "tool" | "file" | "folder" | "rename" | null>(null);
   const [formName, setFormName] = useState("");
   const [formDetail, setFormDetail] = useState("");
-  const [formId, setFormId] = useState("");
   const [toast, setToast] = useState("");
   // Same `pi-theme` storage and toggle as the chat UI, so the admin remembers
   // the choice per browser origin (admin.buhgalterboutique.ru is its own one).
@@ -323,9 +313,8 @@ export function MultiuseAdmin() {
       setFileMutationPending(false);
     }
   };
-  const toggleResource = (kind: "models" | "skills" | "tools", index: number) => {
+  const toggleResource = (kind: "skills" | "tools", index: number) => {
     const update = <T extends { enabled: boolean }>(items: T[]) => items.map((item, i) => i === index ? { ...item, enabled: !item.enabled } : item);
-    if (kind === "models") setModels((items) => update(items));
     if (kind === "skills") setSkills((items) => update(items));
     if (kind === "tools") setTools((items) => update(items));
   };
@@ -358,14 +347,12 @@ export function MultiuseAdmin() {
       }
       return;
     }
-    if (modal === "model") setModels((items) => [...items, { name: formName.trim(), provider: formDetail.trim() || "Новый провайдер", id: formId.trim() || "model-id", description: "Добавлена в макете", enabled: true }]);
     if (modal === "skill") setSkills((items) => [...items, { name: formName.trim(), description: formDetail.trim() || "Описание навыка", enabled: true }]);
     if (modal === "tool") setTools((items) => [...items, { name: formName.trim(), description: formDetail.trim() || "Описание инструмента", enabled: true }]);
-    setModal(null); setFormName(""); setFormDetail(""); setFormId(""); notify("Элемент добавлен в макет");
+    setModal(null); setFormName(""); setFormDetail(""); notify("Элемент добавлен в макет");
   };
-  const removeResource = (kind: "models" | "skills" | "tools", index: number, name: string) => {
+  const removeResource = (kind: "skills" | "tools", index: number, name: string) => {
     if (!window.confirm(`Удалить «${name}»?`)) return;
-    if (kind === "models") setModels((items) => items.filter((_, i) => i !== index));
     if (kind === "skills") setSkills((items) => items.filter((_, i) => i !== index));
     if (kind === "tools") setTools((items) => items.filter((_, i) => i !== index));
   };
@@ -374,7 +361,7 @@ export function MultiuseAdmin() {
   if (!allowed) return <main className={styles.centerState}><div className={styles.deniedIcon}>!</div><h1>Нет доступа</h1><p>Для просмотра панели нужны права администратора.</p></main>;
 
   const title = tabs.find((tab) => tab.id === activeTab)?.label || "Пользователи";
-  const activeCount = activeTab === "users" ? usersLoading || usersError ? "—" : users.length : activeTab === "files" ? files.filter((file) => file.kind === "file").length : activeTab === "models" ? models.filter((item) => item.enabled).length : activeTab === "skills" ? skills.filter((item) => item.enabled).length : tools.filter((item) => item.enabled).length;
+  const activeCount = activeTab === "users" ? usersLoading || usersError ? "—" : users.length : activeTab === "files" ? files.filter((file) => file.kind === "file").length : activeTab === "skills" ? skills.filter((item) => item.enabled).length : tools.filter((item) => item.enabled).length;
 
   return <main className={styles.admin}>
     <aside className={styles.sidebar}>
@@ -387,11 +374,11 @@ export function MultiuseAdmin() {
     </aside>
     <section className={styles.mainArea}>
       <header className={styles.topbar}><div className={styles.breadcrumb}>Администрирование <Icon name="chevron" size={14}/><strong>{title}</strong></div><div className={styles.topbarActions}><button className={styles.iconButton} aria-label={isDark ? "Включить светлую тему" : "Включить тёмную тему"} title={isDark ? "Светлая тема" : "Тёмная тема"} onClick={(event) => setThemePreference(isDark ? "light" : "dark", { x: event.clientX, y: event.clientY })}><Icon name={isDark ? "sun" : "moon"} size={17}/></button><div className={styles.topUser}><div className={styles.avatar}>{(adminUser?.fullName || "А")[0]}</div><div><strong>{adminUser?.fullName || "Администратор"}</strong><span>Команда Бухгалтер Бутик</span></div></div></div></header>
-      <div className={`${styles.content} ${activeTab === "files" ? styles.filesContent : ""}`}>
-        {activeTab !== "files" && <><div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Сотрудники из BuhgalterBPM и состояние их AI-workspace." : activeTab === "models" ? "Выберите модели, доступные сотрудникам в чате." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
-          {activeTab !== "users" && <button className={styles.primaryButton} onClick={() => { setModal(activeTab === "models" ? "model" : activeTab === "skills" ? "skill" : "tool"); setFormName(""); setFormDetail(""); setFormId(""); }}><Icon name="plus"/>Добавить {activeTab === "models" ? "модель" : activeTab === "skills" ? "навык" : "инструмент"}</button>}
+      <div className={`${styles.content} ${activeTab === "files" ? styles.filesContent : activeTab === "models" ? styles.modelsContent : ""}`}>
+        {activeTab !== "files" && activeTab !== "models" && <><div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Сотрудники из BuhgalterBPM и состояние их AI-workspace." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
+          {activeTab !== "users" && <button className={styles.primaryButton} onClick={() => { setModal(activeTab === "skills" ? "skill" : "tool"); setFormName(""); setFormDetail(""); }}><Icon name="plus"/>Добавить {activeTab === "skills" ? "навык" : "инструмент"}</button>}
         </div>
-        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "models" ? "Активные модели" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>{activeTab === "users" ? "Данные из BPM" : "Предварительный просмотр"}</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>{activeTab === "users" ? "Пересоздание заменяет прежние файлы шаблона актуальными. Личные файлы и история чатов сохраняются." : "Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников."}</span></div></div></>}
+        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>{activeTab === "users" ? "Данные из BPM" : "Предварительный просмотр"}</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>{activeTab === "users" ? "Пересоздание заменяет прежние файлы шаблона актуальными. Личные файлы и история чатов сохраняются." : "Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников."}</span></div></div></>}
 
         {activeTab === "users" && <section className={styles.panel}>
           <div className={styles.panelHeader}><div><h2>Сотрудники BPM</h2><p>Актуальные профили из BuhgalterBPM</p></div><label className={styles.search}><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск сотрудника"/></label></div>
@@ -410,18 +397,7 @@ export function MultiuseAdmin() {
               <div className={styles.previewFooter}><span>{editingFile ? "Режим редактирования" : "Предпросмотр файла"}</span><span>{fileDraft.length} символов</span></div></div></div>
         </section>}
 
-        {activeTab === "models" && <section className={`${styles.panel} ${styles.section}`}>
-          <div className={styles.panelHeader}><div><h2>Модели сотрудников</h2><p>Кто и как может подключать модели в AI-чате</p></div><span className={styles.countLabel}>{ownModelsAllowed ? "Свои модели разрешены" : "Только модели компании"}</span></div>
-          <div className={styles.list}><div className={styles.listItem}>
-            <div className={`${styles.resourceIcon} ${styles.modelIcon}`}><Icon name="models"/></div>
-            <div className={styles.listCopy}><strong>Разрешить подключать собственные модели</strong><span>Сотрудник сможет добавить свой провайдер и использовать его модели в чате</span></div>
-            <Badge tone={ownModelsAllowed ? "green" : "neutral"}>{ownModelsAllowed ? "Разрешено" : "Запрещено"}</Badge>
-            <button className={`${styles.switch} ${ownModelsAllowed ? styles.switchOn : ""}`} aria-label="Разрешить сотрудникам подключать собственные модели" aria-checked={ownModelsAllowed} role="switch" onClick={() => { setOwnModelsAllowed((value) => !value); notify(ownModelsAllowed ? "Подключение своих моделей запрещено" : "Сотрудникам разрешено подключать свои модели"); }}><i/></button>
-          </div></div>
-          <div className={styles.panelEnd}><span className={styles.sectionNote}>Настройка пока не сохраняется: серверная часть будет добавлена на следующем этапе, до этого переключатель сбрасывается после перезагрузки страницы.</span></div>
-        </section>}
-
-        {activeTab === "models" && <section className={styles.resourceGrid}>{models.map((model, index) => <article className={styles.resourceCard} key={`${model.id}-${index}`}><div className={styles.resourceTop}><div className={`${styles.resourceIcon} ${styles.modelIcon}`}><Icon name="models" size={19}/></div><button className={styles.iconButton} aria-label={`Удалить ${model.name}`} onClick={() => removeResource("models", index, model.name)}><Icon name="trash" size={16}/></button></div><div className={styles.modelProvider}>{model.provider}</div><h2>{model.name}</h2><p>{model.description}</p><div className={styles.resourceMeta}><code>{model.id}</code><label className={styles.switchLabel}><span>{model.enabled ? "Доступна" : "Выключена"}</span><button className={`${styles.switch} ${model.enabled ? styles.switchOn : ""}`} aria-label={`${model.enabled ? "Отключить" : "Включить"} модель ${model.name}`} aria-checked={model.enabled} role="switch" onClick={() => toggleResource("models", index)}><i/></button></label></div></article>)}<button className={styles.addCard} onClick={() => { setModal("model"); setFormName(""); setFormDetail(""); setFormId(""); }}><span><Icon name="plus" size={20}/></span><strong>Добавить модель</strong><small>Настроить модель для сотрудников</small></button></section>}
+        {activeTab === "models" && <CorporateModels />}
 
         {activeTab === "skills" && <section className={styles.panel}><div className={styles.panelHeader}><div><h2>Навыки по умолчанию</h2><p>Навыки задают специализированные инструкции для AI-помощника</p></div><span className={styles.countLabel}>{skills.filter((item) => item.enabled).length} включено</span></div><div className={styles.list}>{skills.map((skill, index) => <div className={styles.listItem} key={`${skill.name}-${index}`}><div className={`${styles.resourceIcon} ${styles.skillIcon}`}><Icon name="skills"/></div><div className={styles.listCopy}><strong>{skill.name}</strong><span>{skill.description}</span></div><Badge tone={skill.enabled ? "green" : "neutral"}>{skill.enabled ? "Включён" : "Выключен"}</Badge><button className={`${styles.switch} ${skill.enabled ? styles.switchOn : ""}`} aria-label={`${skill.enabled ? "Отключить" : "Включить"} навык ${skill.name}`} aria-checked={skill.enabled} role="switch" onClick={() => toggleResource("skills", index)}><i/></button><button className={styles.iconButton} aria-label={`Удалить ${skill.name}`} onClick={() => removeResource("skills", index, skill.name)}><Icon name="trash" size={16}/></button></div>)}</div><div className={styles.panelEnd}><button className={styles.secondaryButton} onClick={() => setModal("skill")}><Icon name="plus" size={15}/>Добавить навык</button></div></section>}
 
@@ -430,6 +406,6 @@ export function MultiuseAdmin() {
     </section>
     {fileContextMenu && <div className={styles.fileContextMenu} data-file-context-menu role="menu" aria-label={`Действия: ${fileContextMenu.entry.name}`} style={{ left: fileContextMenu.x, top: fileContextMenu.y }} onContextMenu={(event) => event.preventDefault()}><button role="menuitem" onClick={() => openRename(fileContextMenu.entry)}>Переименовать</button><button role="menuitem" className={styles.contextDanger} onClick={() => { const entry = fileContextMenu.entry; setFileContextMenu(null); void deleteEntry(entry); }}>Удалить</button></div>}
     {toast && <div className={styles.toast} role="status">{toast}</div>}
-    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) { setModal(null); setRenameTarget(null); } }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); void addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>{modal === "rename" ? `Переименовать ${renameTarget?.kind === "folder" ? "папку" : "файл"}` : `Добавить ${modal === "model" ? "модель" : modal === "skill" ? "навык" : modal === "file" ? "файл" : modal === "folder" ? "папку" : "инструмент"}`}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => { setModal(null); setRenameTarget(null); }}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "rename" ? "Новое имя" : modal === "model" ? "Название модели" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : modal === "folder" ? "Название папки" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "rename" ? renameTarget?.name : modal === "model" ? "Например, Claude Sonnet" : modal === "file" ? "Например, Инструкция.md" : modal === "folder" ? "Например, Отчёты" : "Введите название"}/></label>{modal !== "file" && modal !== "folder" && modal !== "rename" && <label className={styles.fieldLabel}>{modal === "model" ? "Провайдер" : "Описание"}<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={modal === "model" ? "Например, Anthropic" : "Краткое описание"}/></label>}{modal === "model" && <label className={styles.fieldLabel}>ID модели<input value={formId} onChange={(event) => setFormId(event.target.value)} placeholder="Например, claude-sonnet"/><span className={styles.fieldHint}>Подключение модели к провайдеру будет добавлено на следующем этапе.</span></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => { setModal(null); setRenameTarget(null); }} disabled={fileMutationPending}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim() || ((modal === "file" || modal === "folder" || modal === "rename") && fileMutationPending)}><Icon name={modal === "rename" ? "edit" : "plus"}/>{fileMutationPending && (modal === "file" || modal === "folder" || modal === "rename") ? "Сохраняем…" : modal === "rename" ? "Переименовать" : "Добавить"}</button></div></form></div>}
+    {modal && <div className={styles.modalBackdrop} onMouseDown={(event) => { if (event.target === event.currentTarget) { setModal(null); setRenameTarget(null); } }}><form className={styles.modal} onSubmit={(event) => { event.preventDefault(); void addResource(); }}><div className={styles.modalHeader}><div><span className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</span><h2>{modal === "rename" ? `Переименовать ${renameTarget?.kind === "folder" ? "папку" : "файл"}` : `Добавить ${modal === "skill" ? "навык" : modal === "file" ? "файл" : modal === "folder" ? "папку" : "инструмент"}`}</h2></div><button type="button" className={styles.iconButton} aria-label="Закрыть" onClick={() => { setModal(null); setRenameTarget(null); }}><Icon name="close"/></button></div><label className={styles.fieldLabel}>{modal === "rename" ? "Новое имя" : modal === "skill" ? "Название навыка" : modal === "file" ? "Название файла" : modal === "folder" ? "Название папки" : "Название инструмента"}<input autoFocus value={formName} onChange={(event) => setFormName(event.target.value)} placeholder={modal === "rename" ? renameTarget?.name : modal === "file" ? "Например, Инструкция.md" : modal === "folder" ? "Например, Отчёты" : "Введите название"}/></label>{modal !== "file" && modal !== "folder" && modal !== "rename" && <label className={styles.fieldLabel}>Описание<input value={formDetail} onChange={(event) => setFormDetail(event.target.value)} placeholder={"Краткое описание"}/></label>}<div className={styles.modalActions}><button type="button" className={styles.secondaryButton} onClick={() => { setModal(null); setRenameTarget(null); }} disabled={fileMutationPending}>Отмена</button><button className={styles.primaryButton} disabled={!formName.trim() || ((modal === "file" || modal === "folder" || modal === "rename") && fileMutationPending)}><Icon name={modal === "rename" ? "edit" : "plus"}/>{fileMutationPending && (modal === "file" || modal === "folder" || modal === "rename") ? "Сохраняем…" : modal === "rename" ? "Переименовать" : "Добавить"}</button></div></form></div>}
   </main>;
 }

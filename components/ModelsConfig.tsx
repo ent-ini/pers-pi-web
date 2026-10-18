@@ -1,6 +1,9 @@
 "use client";
 
-import { useState, useEffect, useCallback, useId, useRef } from "react";
+import { createContext, useContext, useMemo, useState, useEffect, useCallback, useId, useRef } from "react";
+import { modelsConfigApiPath } from "./models-config-api";
+import { PersonalModelsPolicy } from "./PersonalModelsPolicy";
+import { openStackedDialog } from "@/lib/stacked-dialog";
 import { useI18n } from "@/hooks/useI18n";
 import type { ModelCatalogPreset, ModelCatalogRecommendation } from "@/lib/model-catalog";
 import type { DiscoveredModel } from "@/lib/model-discovery";
@@ -25,6 +28,7 @@ import {
 } from "./models-config-helpers";
 import {
   ConfigButton,
+  ConfigSwitch,
   ConfigDetail,
   ConfigDetailActions,
   ConfigDetailHeader,
@@ -102,6 +106,7 @@ interface ModelEntry {
 }
 
 interface ProviderEntry {
+  enabled?: boolean;
   baseUrl?: string;
   api?: string;
   apiKey?: string;
@@ -113,7 +118,11 @@ interface ProviderEntry {
 
 interface ModelsJson {
   providers?: Record<string, ProviderEntry>;
+  revision?: string;
 }
+
+interface CorporatePreset { id: string; displayName: string; provider: ProviderEntry }
+const ModelsConfigEnvironment = createContext({ corporate: false, request: (path: string, init?: RequestInit) => fetch(path, init) });
 
 type ModelTestState =
   | { phase: "idle" }
@@ -176,8 +185,9 @@ const API_OPTIONS = ["openai-completions", "openai-responses", "anthropic-messag
 
 // ── Form field helpers ────────────────────────────────────────────────────────
 
+const FieldLabel = createContext<string | undefined>(undefined);
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <ConfigField label={label}>{children}</ConfigField>;
+  return <FieldLabel.Provider value={label}><ConfigField label={label}>{children}</ConfigField></FieldLabel.Provider>;
 }
 
 const inputStyle = {
@@ -193,7 +203,7 @@ const inputStyle = {
 };
 
 function TextInput({ value, onChange, placeholder, mono }: { value: string; onChange: (v: string) => void; placeholder?: string; mono?: boolean }) {
-  return <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
+  return <input aria-label={useContext(FieldLabel)} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder}
     style={{ ...inputStyle, fontFamily: mono ? "var(--font-mono)" : "inherit" }} />;
 }
 
@@ -206,7 +216,9 @@ function SecretTextInput({
   autoComplete = "off",
   spellCheck = false,
   style,
+  stored = false,
 }: {
+  stored?: boolean;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
@@ -217,6 +229,7 @@ function SecretTextInput({
   style?: React.CSSProperties;
 }) {
   const [visible, setVisible] = useState(false);
+  const label = useContext(FieldLabel);
   const { t } = useI18n();
 
   useEffect(() => {
@@ -227,15 +240,16 @@ function SecretTextInput({
     <div style={{ position: "relative", width: "100%", ...style }}>
       <input
         type={visible ? "text" : "password"}
-        value={value}
+        aria-label={label || "API Key"}
+        value={stored ? "" : value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
-        placeholder={placeholder}
+        placeholder={stored ? "Ключ сохранён · введите новый для замены" : placeholder}
         style={{ ...inputStyle, paddingRight: 34, fontFamily: mono ? "var(--font-mono)" : "inherit" }}
         autoComplete={autoComplete}
         spellCheck={spellCheck}
       />
-      <button
+      {!stored && <button
         type="button"
         onClick={() => setVisible((v) => !v)}
          aria-label={visible ? t("i18n.hideDetails") : t("i18n.showDetails")}
@@ -270,19 +284,20 @@ function SecretTextInput({
             <circle cx="12" cy="12" r="3" />
           </svg>
         )}
-      </button>
+      </button>}
     </div>
   );
 }
 
 function NumInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return <input type="number" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />;
+  return <input aria-label={useContext(FieldLabel)} type="number" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} style={inputStyle} />;
 }
 
 function Select({ value, onChange, options, required }: { value: string; onChange: (v: string) => void; options: readonly string[]; required?: boolean }) {
   const { t } = useI18n();
+  const label = useContext(FieldLabel);
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}
+    <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}
       style={{ ...inputStyle, color: value ? "var(--text)" : "var(--text-dim)" }}>
        {!required && <option value="">— {t("i18n.default")} / none —</option>}
       {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -313,6 +328,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
   onAddModels: (models: DiscoveredModel[]) => void; enabledModels: EnabledModelsController;
 }) {
   const { t } = useI18n();
+  const { corporate, request } = useContext(ModelsConfigEnvironment);
   const [discoveryState, setDiscoveryState] = useState<ModelDiscoveryState>({ phase: "idle" });
   const [discoveryQuery, setDiscoveryQuery] = useState("");
   const [selectedModelIds, setSelectedModelIds] = useState<string[]>([]);
@@ -334,7 +350,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
     setDiscoveryState({ phase: "loading" });
     setSelectedModelIds([]);
     try {
-      const res = await fetch("/api/models-config/discover", {
+      const res = await request("/api/models-config/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providerName: name, provider: { ...provider, models: undefined } }),
@@ -350,7 +366,7 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
       if (requestId !== discoveryRequestIdRef.current) return;
       setDiscoveryState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
     }
-  }, [discoveryState.phase, name, provider]);
+  }, [discoveryState.phase, name, provider, request]);
 
   const existingModelIds = new Set((provider.models ?? []).map((model) => model.id));
   const discoveredModels = discoveryState.phase === "success" ? discoveryState.models : [];
@@ -402,11 +418,11 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
             <SectionTitle>{t("i18n.provider")}</SectionTitle>
           </ConfigDetailHeaderInfo>
           <ConfigDetailActions>
-            <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} noteId={switchNoteId} />
+            {corporate ? <><span style={{ fontSize: 11, color: "var(--text-muted)" }}>Доступен сотрудникам</span><ConfigSwitch checked={provider.enabled !== false} label="Доступен сотрудникам" onChange={(enabled) => set("enabled", enabled)} /></> : <EnabledModelsProviderSwitch providerId={name} controller={enabledModels} noteId={switchNoteId} />}
             <ConfigButton variant="danger" size="small" onClick={onDelete}>{t("i18n.delete")}</ConfigButton>
           </ConfigDetailActions>
         </ConfigDetailHeader>
-        <EnabledModelsProviderSwitchNote providerId={name} controller={enabledModels} id={switchNoteId} />
+        {corporate ? <div className="config-detail-heading-note">Изменения подключения и доступности применяются после сохранения ко всем сотрудникам.</div> : <EnabledModelsProviderSwitchNote providerId={name} controller={enabledModels} id={switchNoteId} />}
       </div>
 
        <Field label={t("i18n.providerName")}>
@@ -423,15 +439,16 @@ function ProviderDetail({ name, editingName, provider, onChange, onEditingNameCh
         <TextInput value={provider.baseUrl ?? ""} onChange={(v) => set("baseUrl", v || undefined)}
           placeholder="https://api.example.com/v1" mono />
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Leave empty for a built-in provider to use the endpoint pi ships
+          {corporate ? "Адрес API провайдера. Для готовых провайдеров заполняется автоматически." : "Leave empty for a built-in provider to use the endpoint pi ships"}
         </span>
       </Field>
 
       <Field label="API Key">
-        <SecretTextInput value={provider.apiKey ?? ""} onChange={(v) => set("apiKey", v || undefined)}
-          placeholder="ENV_VAR_NAME, !shell-command, or literal key" mono />
+        <SecretTextInput value={provider.apiKey ?? ""} stored={corporate && provider.apiKey?.startsWith("retain:")} onChange={(v) => set("apiKey", v || undefined)}
+          placeholder={corporate ? "Ключ API компании" : "ENV_VAR_NAME, !shell-command, or literal key"} mono />
+        {corporate && provider.apiKey && <ConfigButton size="small" variant="danger" onClick={() => set("apiKey", undefined)}>Удалить ключ из подключения</ConfigButton>}
         <span style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>
-          Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env var name
+          {corporate ? "Введите ключ целиком. Сохранённый ключ скрыт и не выдаётся сотрудникам. Команды и переменные окружения не поддерживаются." : <>Prefix with <code style={{ fontFamily: "var(--font-mono)" }}>!</code> to run a shell command, or use an env var name</>}
         </span>
       </Field>
 
@@ -728,14 +745,23 @@ function HeaderListEditor({ headers, onChange }: {
   headers: Record<string, string> | undefined;
   onChange: (h: Record<string, string> | undefined) => void;
 }) {
+  const { corporate } = useContext(ModelsConfigEnvironment);
   const [rows, setRows] = useState<HeaderRow[]>(() => Object.entries(headers ?? {}).map(
     ([name, value], id) => ({ id, name, value }),
   ));
   const nextRowIdRef = useRef(rows.length);
+  const lastEmittedHeaders = useRef(headers);
+  useEffect(() => {
+    if (headers === lastEmittedHeaders.current) return;
+    lastEmittedHeaders.current = headers;
+    setRows(Object.entries(headers ?? {}).map(([name, value]) => ({ id: nextRowIdRef.current++, name, value })));
+  }, [headers]);
 
   const applyRows = (next: HeaderRow[]): void => {
     setRows(next);
-    onChange(serializeHeaderRows(next));
+    const serialized = serializeHeaderRows(next);
+    lastEmittedHeaders.current = serialized;
+    onChange(serialized);
   };
   const setEntry = (id: number, changes: Partial<Pick<HeaderRow, "name" | "value">>): void => {
     applyRows(updateHeaderRow(rows, id, changes));
@@ -757,10 +783,10 @@ function HeaderListEditor({ headers, onChange }: {
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       {rows.map((row) => (
         <div key={row.id} style={{ display: "flex", gap: 6 }}>
-          <input value={row.name} onChange={(e) => setEntry(row.id, { name: e.target.value })}
+          <input aria-label="Название заголовка" value={row.name} onChange={(e) => setEntry(row.id, { name: e.target.value })}
             placeholder="Header-Name" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
-          <input value={row.value} onChange={(e) => setEntry(row.id, { value: e.target.value })}
-            placeholder="value" style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
+          <input aria-label="Значение заголовка" type={corporate ? "password" : "text"} autoComplete="off" value={corporate && row.value.startsWith("retain:") ? "" : row.value} onChange={(e) => setEntry(row.id, { value: e.target.value })}
+            placeholder={corporate && row.value.startsWith("retain:") ? "Значение сохранено" : "value"} style={{ ...inputStyle, fontFamily: "var(--font-mono)", flex: 1 }} />
           <button onClick={() => removeEntry(row.id)} style={rowBtnStyle}>✕</button>
         </div>
       ))}
@@ -833,6 +859,7 @@ function ModelDetail({
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
 }) {
+  const { request } = useContext(ModelsConfigEnvironment);
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const { t } = useI18n();
   const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
@@ -896,7 +923,7 @@ function ModelDetail({
     if (!model.id.trim() || testState.phase === "testing") return;
     setTestState({ phase: "testing" });
     try {
-      const res = await fetch("/api/models-config/test", {
+      const res = await request("/api/models-config/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ providerName, provider, model }),
@@ -926,7 +953,7 @@ function ModelDetail({
     } catch (e) {
       setTestState({ phase: "error", message: e instanceof Error ? e.message : String(e) });
     }
-  }, [model, provider, providerName, testState.phase]);
+  }, [model, provider, providerName, request, testState.phase]);
 
   const handleCatalogFill = useCallback(async () => {
     const query = model.id.trim();
@@ -936,7 +963,7 @@ function ModelDetail({
     try {
       const params = new URLSearchParams({ q: query, provider: providerName, limit: "50" });
       if (provider.baseUrl?.trim()) params.set("baseUrl", provider.baseUrl.trim());
-      const res = await fetch(`/api/models-config/catalog?${params}`);
+      const res = await request(`/api/models-config/catalog?${params}`);
       const data = await res.json() as { recommendation?: ModelCatalogRecommendation; error?: string };
       if (requestId !== catalogRequestIdRef.current) return;
       if (!res.ok || data.error || !data.recommendation) {
@@ -958,7 +985,7 @@ function ModelDetail({
       if (requestId !== catalogRequestIdRef.current) return;
       setCatalogState({ phase: "error", message: error instanceof Error ? error.message : String(error) });
     }
-  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName]);
+  }, [catalogState.phase, model, onChange, provider.baseUrl, providerName, request]);
 
   const undoCatalogFill = () => {
     const previous = catalogUndoRef.current;
@@ -1710,7 +1737,7 @@ function AddProviderPicker({
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setTimeout(() => inputRef.current?.focus(), 30); }, []);
+  useEffect(() => openStackedDialog(document, inputRef.current, onClose), [onClose]);
 
   const q = search.trim().toLowerCase();
 
@@ -1738,9 +1765,18 @@ function AddProviderPicker({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("i18n.addProvider")}
       style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       onKeyDown={(e) => {
+        if (e.key === "Tab") {
+          const controls = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)'));
+          const first = controls[0]; const last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        }
         if (e.key !== "Escape") return;
         e.preventDefault();
         e.stopPropagation();
@@ -1758,8 +1794,10 @@ function AddProviderPicker({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
              placeholder={t("i18n.searchProviders")}
+             aria-label={t("i18n.searchProviders")}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--text)", fontSize: 13, boxSizing: "border-box" }}
           />
+          <ConfigButton onClick={onClose}>{t("i18n.close")}</ConfigButton>
         </div>
 
         {/* Card grid */}
@@ -1834,13 +1872,24 @@ function AddProviderPicker({
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
-  onClose: () => void; embedded?: boolean; cwd?: string | null;
+export function ModelsConfig({ onClose, embedded = false, cwd = null, corporate = false }: {
+  onClose: () => void; embedded?: boolean; cwd?: string | null; corporate?: boolean;
+}) {
+  const environment = useMemo(() => ({ corporate, request: (path: string, init?: RequestInit) => fetch(modelsConfigApiPath(path, corporate), init) }), [corporate]);
+  const editor = <ModelsConfigEnvironment.Provider value={environment}><ModelsConfigEditor onClose={onClose} embedded={embedded} cwd={cwd} /></ModelsConfigEnvironment.Provider>;
+  return corporate ? editor : <PersonalModelsPolicy embedded={embedded} onClose={onClose}>{editor}</PersonalModelsPolicy>;
+}
+
+function ModelsConfigEditor({ onClose, embedded, cwd }: {
+  onClose: () => void; embedded: boolean; cwd: string | null;
 }) {
   const { t } = useI18n();
+  const { corporate, request } = useContext(ModelsConfigEnvironment);
+  const [presets, setPresets] = useState<CorporatePreset[]>([]);
+  const [presetError, setPresetError] = useState<string | null>(null);
   // `enabledModels` lives in pi's settings, not models.json, so these switches
   // apply immediately instead of waiting for this panel's Save button.
-  const enabledModels = useEnabledModels(cwd);
+  const enabledModels = useEnabledModels(cwd, !corporate);
   const [config, setConfig] = useState<ModelsJson>({ providers: {} });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1869,6 +1918,15 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
   const [providerNameDraft, setProviderNameDraft] = useState<{ provider: string; name: string } | null>(null);
 
   const refreshAuthProviders = useCallback(() => {
+    if (corporate) {
+      request("/api/models-config/presets", { cache: "no-store" }).then(async (response) => {
+        const data = await response.json() as { presets?: CorporatePreset[]; error?: string };
+        if (!response.ok || !Array.isArray(data.presets)) throw new Error(data.error || "Не удалось загрузить провайдеров");
+        setPresets(data.presets);
+        setPresetError(null);
+      }).catch((error: unknown) => setPresetError(error instanceof Error ? error.message : "Не удалось загрузить провайдеров"));
+      return;
+    }
     fetch("/api/auth/providers")
       .then((r) => r.json())
       .then((d: { oauthProviders?: OAuthProvider[]; apiKeyProviders?: ApiKeyProvider[] }) => {
@@ -1876,10 +1934,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         if (Array.isArray(d.apiKeyProviders)) setApiKeyProviders(d.apiKeyProviders);
       })
       .catch(() => {});
-  }, []);
+  }, [corporate, request]);
 
   useEffect(() => {
-    fetch("/api/models-config")
+    request("/api/models-config", { cache: "no-store" })
       .then(async (r) => {
         const d = await r.json() as ModelsJson & { error?: string };
         if (!r.ok || d.error) throw new Error(d.error ?? `HTTP ${r.status}`);
@@ -1900,7 +1958,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       .catch((e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
     refreshAuthProviders();
-  }, [refreshAuthProviders]);
+  }, [refreshAuthProviders, request]);
 
   useEffect(() => {
     if (selection) setLastSettingsSelection("models", JSON.stringify(selection));
@@ -1913,6 +1971,15 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [finalName]: { api: "openai-completions" } } }));
     setSelection({ type: "provider", name: finalName });
   }, [config.providers]);
+
+  const addCorporatePreset = (id: string) => {
+    const preset = presets.find((entry) => entry.id === id);
+    if (!preset) return;
+    let name = id;
+    for (let n = 2; config.providers?.[name]; n++) name = `${id}-${n}`;
+    setConfig((previous) => ({ ...previous, providers: { ...previous.providers, [name]: structuredClone(preset.provider) } }));
+    setSelection({ type: "provider", name });
+  };
 
   const updateProvider = useCallback((name: string, p: ProviderEntry) => {
     setConfig((prev) => ({ ...prev, providers: { ...(prev.providers ?? {}), [name]: p } }));
@@ -2033,14 +2100,20 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
       draft = renamed;
     }
     try {
-      const res = await fetch("/api/models-config", {
+      const res = await request("/api/models-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
       });
-      const d = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || d.error) setSaveError(d.error ?? `HTTP ${res.status}`);
+      const d = await res.json() as ModelsJson & { success?: boolean; error?: string };
+      if (!res.ok || d.error) setSaveError(corporate && res.status === 409 ? "Настройки изменены в другой вкладке. Скопируйте нужные правки и обновите страницу перед сохранением." : d.error ?? `HTTP ${res.status}`);
       else {
+        if (corporate) {
+          // Drop typed credentials from the draft; keep only server-issued masked references.
+          if (!d.providers || typeof d.revision !== "string") throw new Error("Сервер не подтвердил сохранение моделей");
+          setConfig(d);
+          draft = d;
+        }
         setSavedOk(true);
         setTimeout(() => setSavedOk(false), 2000);
         // models.json just changed under the switches: providers may have been
@@ -2051,14 +2124,14 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
         savedProvidersRef.current = new Set(Object.keys(draft.providers ?? {}));
         savedModelIdsRef.current = savedModelIds(draft);
         renamesRef.current.clear();
-        enabledModels.resync(renames, modelRenames);
+        if (!corporate) enabledModels.resync(renames, modelRenames);
       }
     } catch (e) {
       setSaveError(String(e));
     } finally {
       setSaving(false);
     }
-  }, [applyProviderRename, config, enabledModels, loadError, providerNameDraft, t]);
+  }, [applyProviderRename, config, corporate, enabledModels, loadError, providerNameDraft, request, t]);
 
   const providers = Object.entries(config.providers ?? {});
   // `12/40` next to a provider makes a narrowed selector visible at a glance.
@@ -2117,11 +2190,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
 
   return (
     <>
-    <ConfigPanelShell embedded={embedded} title={t("common.models")} subtitle="~/.pi/agent/models.json" closeLabel={t("i18n.close")} onClose={onClose}>
+    <ConfigPanelShell embedded={embedded} title={corporate ? "Модели компании" : t("common.models")} subtitle={corporate ? "Корпоративные подключения · общие для всех сотрудников" : "~/.pi/agent/models.json"} closeLabel={t("i18n.close")} onClose={onClose}>
 
-        <EnabledModelsBanner controller={enabledModels} />
+        {!corporate && <EnabledModelsBanner controller={enabledModels} />}
 
-        {/* Body */}
+        {/* A corporate save returns masked secrets; freeze its draft until that response lands. */}
+        <div inert={corporate && saving} style={{ display: "flex", flex: 1, minHeight: 0 }}>
         <ConfigSplitView>
 
           {/* Left: tree */}
@@ -2223,7 +2297,7 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
             </ConfigSidebarList>
 
             {/* Add provider */}
-            <ConfigListAction onClick={() => setPickerOpen(true)}>{t("i18n.addProvider")}</ConfigListAction>
+            <ConfigListAction disabled={loading || loadError !== null || saving} onClick={() => setPickerOpen(true)}>{t("i18n.addProvider")}</ConfigListAction>
           </ConfigSidebar>
 
           {/* Right: detail */}
@@ -2235,11 +2309,12 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
             </ConfigDetailStack>
           </ConfigDetail>
         </ConfigSplitView>
+        </div>
 
         {/* Footer */}
-        <ConfigFooter status={(loadError || saveError) && (
+        <ConfigFooter status={(loadError || saveError || presetError) && (
           <span style={{ color: "#f87171" }}>
-            {loadError ? t("models.configUnreadable", { error: loadError }) : saveError}
+            {loadError ? t("models.configUnreadable", { error: loadError }) : saveError || presetError}
           </span>
         )}>
           {!embedded && <ConfigButton onClick={onClose}>{t("i18n.cancel")}</ConfigButton>}
@@ -2261,10 +2336,10 @@ export function ModelsConfig({ onClose, embedded = false, cwd = null }: {
     </ConfigPanelShell>
     {pickerOpen && (
       <AddProviderPicker
-        oauthProviders={oauthProviders}
-        apiKeyProviders={apiKeyProviders}
+        oauthProviders={corporate ? [] : oauthProviders}
+        apiKeyProviders={corporate ? presets.map((preset) => ({ id: preset.id, displayName: preset.displayName, configured: false, modelCount: preset.provider.models?.length || 0 })) : apiKeyProviders}
         onSelectOAuth={(id) => setSelection({ type: "oauth", providerId: id })}
-        onSelectApiKey={(id) => setSelection({ type: "apikey", providerId: id })}
+        onSelectApiKey={(id) => corporate ? addCorporatePreset(id) : setSelection({ type: "apikey", providerId: id })}
         onAddCustom={addCustomProvider}
         onClose={() => setPickerOpen(false)}
       />

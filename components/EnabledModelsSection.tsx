@@ -73,7 +73,7 @@ const FAILURE_KEYS: Record<string, string> = {
   "project-scope": "models.enabledProjectScope",
 };
 
-export function useEnabledModels(cwd?: string | null): EnabledModelsController {
+export function useEnabledModels(cwd?: string | null, active = true): EnabledModelsController {
   const [view, setView] = useState<EnabledModelsView | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState<string | null>(null);
@@ -85,6 +85,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    if (!active) { setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true);
     const query = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
@@ -103,9 +104,10 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [cwd, reloadKey]);
+  }, [active, cwd, reloadKey]);
 
   const mutate = useCallback((key: string, body: MutationBody) => {
+    if (!active) return;
     // A save can land while a switch is still in flight; queue it rather than
     // dropping it, or the panel keeps describing the previous models.json.
     if (pendingRef.current) {
@@ -139,7 +141,7 @@ export function useEnabledModels(cwd?: string | null): EnabledModelsController {
         if (queued) mutateRef.current?.(queued.key, queued.body);
       }
     })();
-  }, [cwd]);
+  }, [active, cwd]);
 
   mutateRef.current = mutate;
 

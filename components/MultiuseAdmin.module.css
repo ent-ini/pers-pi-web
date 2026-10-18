@@ -199,14 +199,115 @@
   font-size: 14px;
 }
 
-.admin button,
-.admin input,
-.admin textarea {
+.admin button:not(:where(.corporateModels *)),
+.admin input:not(:where(.corporateModels *)),
+.admin textarea:not(:where(.corporateModels *)) {
   font: inherit;
 }
 
-.admin button {
+.admin button:not(:where(.corporateModels *)) {
   color: inherit;
+}
+
+.modelsContent {
+  padding: 0 !important;
+  overflow: auto;
+}
+
+.corporateModels {
+  --bg: var(--surface);
+  --bg-panel: var(--surface-2);
+  --bg-hover: var(--surface-row-hover);
+  --border: var(--line);
+  --text: var(--ink);
+  --text-muted: var(--ink-soft);
+  --text-dim: var(--muted);
+  --accent: var(--green);
+  --accent-contrast: var(--on-green);
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.modelPolicy {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  padding: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modelPolicy h1,
+.modelsEditorHeading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.modelPolicy p,
+.modelsEditorHeading p {
+  margin: 7px 0 0;
+  max-width: 75ch;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.modelPolicyControl {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.modelPolicyFeedback {
+  flex-basis: 100%;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.modelPolicyFeedback[role="alert"] {
+  color: var(--denied-ink);
+}
+
+.modelsEditor {
+  display: flex;
+  flex: 1;
+  min-height: 520px;
+  flex-direction: column;
+}
+
+.modelsEditorHeading {
+  padding: 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modelsEditor :global(.config-panel-root) {
+  flex: 1;
+  min-height: 420px;
+}
+
+.modelsEditor :global(.config-sidebar) {
+  min-width: 150px;
+}
+
+@media (max-width: 600px) {
+  .modelPolicy,
+  .modelsEditorHeading {
+    padding: 16px;
+  }
+
+  .modelPolicyControl {
+    justify-content: space-between;
+    width: 100%;
+  }
 }
 
 .admin .sidebar,
