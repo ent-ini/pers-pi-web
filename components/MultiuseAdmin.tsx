@@ -4,9 +4,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { useTheme } from "@/hooks/useTheme";
 import { MarkdownBody } from "./MarkdownBody";
 import styles from "./MultiuseAdmin.module.css";
+import type { AdminEmployee as Employee } from "@/lib/multiuse-admin-users";
 
 type Tab = "users" | "files" | "models" | "skills" | "tools";
-type Employee = { id: string; name: string; email: string; role: string; status: string; worker: "running" | "stopped" | "not-created" | "unknown" };
 type AdminUser = { fullName: string; role: string };
 const roles: Record<string, string> = { admin: "Администратор", tech: "Тех. специалист", employee: "Сотрудник", viewer: "Наблюдатель", member: "Сотрудник" };
 const workerLabels: Record<Employee["worker"], string> = { running: "Работает", stopped: "Остановлен", "not-created": "Не создан", unknown: "Недоступен" };
@@ -101,6 +101,10 @@ export function MultiuseAdmin() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [usersError, setUsersError] = useState("");
   const [workerAvailable, setWorkerAvailable] = useState(true);
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const resetPending = useRef(false);
+  const [resetFeedback, setResetFeedback] = useState<{ error: boolean; text: string } | null>(null);
+  const [templateRevision, setTemplateRevision] = useState("");
   const [files, setFiles] = useState<DefaultFile[]>([]);
   const [filesLoading, setFilesLoading] = useState(true);
   const [filesError, setFilesError] = useState("");
@@ -172,7 +176,9 @@ export function MultiuseAdmin() {
     setFilesLoading(true);
     setFilesError("");
     try {
-      setFiles(parseTemplateEntries(await templateRequest("tree")));
+      const body = await templateRequest("tree");
+      setFiles(parseTemplateEntries(body));
+      setTemplateRevision(body && typeof body === "object" && "revision" in body && typeof body.revision === "string" ? body.revision : "");
     } catch (error) {
       setFilesError(error instanceof Error ? error.message : "Не удалось загрузить файлы шаблона");
     } finally {
@@ -201,6 +207,29 @@ export function MultiuseAdmin() {
     path: parts.slice(0, index + 1).join("/"),
   }));
   const filteredUsers = useMemo(() => users.filter((user) => `${user.name} ${user.email} ${roles[user.role] || user.role} ${statusLabels[user.status] || user.status}`.toLowerCase().includes(search.trim().toLowerCase())), [users, search]);
+
+  const resetWorkspace = async (user: Employee) => {
+    if (resetPending.current) return;
+    const legacyWarning = !user.workspaceTemplate ? "\nУ этого workspace нет истории шаблона: неизвестные старые файлы останутся, конфликтующие личные файлы не будут перезаписаны." : "";
+    if (!window.confirm(`Пересоздать workspace сотрудника «${user.name}»?\nПрежние файлы шаблона, включая правки сотрудника в них, будут удалены и заменены актуальными. Личные файлы и история чатов сохранятся. Текущий ответ AI будет прерван.${legacyWarning}`)) return;
+    resetPending.current = true;
+    setResettingUserId(user.id);
+    setResetFeedback(null);
+    try {
+      const response = await fetch(`/api/multi/admin/users/${encodeURIComponent(user.id)}/reset-workspace`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body.ok !== true) throw new Error(body.error || "Не удалось пересоздать workspace");
+      setUsers((items) => items.map((item) => item.id === user.id ? { ...item, worker: body.worker, workspaceTemplate: { revision: body.revision, appliedAt: body.appliedAt, trackedFiles: body.trackedFiles } } : item));
+      setResetFeedback({ error: false, text: body.legacy
+        ? `Workspace сотрудника «${user.name}» обновлён. Прежний шаблон не был записан: неизвестные старые файлы сохранены. Следующие пересоздания будут учитывать историю.`
+        : `Workspace сотрудника «${user.name}» пересоздан: установлен актуальный шаблон. Личные файлы и чаты сохранены.` });
+    } catch (error) {
+      setResetFeedback({ error: true, text: error instanceof Error ? error.message : "Не удалось пересоздать workspace" });
+    } finally {
+      resetPending.current = false;
+      setResettingUserId(null);
+    }
+  };
 
   const chooseFile = async (file: DefaultFile, startEditing = false) => {
     if (file.kind !== "file") return;
@@ -231,6 +260,7 @@ export function MultiuseAdmin() {
     try {
       await templateRequest("file", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path: currentFile.path, content: fileDraft }) });
       setEditingFile(false);
+      await refreshTemplateTree();
       notify("Изменения сохранены в шаблоне workspace");
     } catch (error) {
       notify(error instanceof Error ? error.message : "Не удалось сохранить файл");
@@ -361,19 +391,20 @@ export function MultiuseAdmin() {
         {activeTab !== "files" && <><div className={styles.pageHeading}><div><div className={styles.eyebrow}>НАСТРОЙКИ AI-ЧАТА</div><h1>{title}</h1><p>{activeTab === "users" ? "Сотрудники из BuhgalterBPM и состояние их AI-workspace." : activeTab === "models" ? "Выберите модели, доступные сотрудникам в чате." : activeTab === "skills" ? "Настройте навыки, которые будут доступны сотрудникам по умолчанию." : "Управляйте инструментами, которыми AI-помощник может пользоваться."}</p></div>
           {activeTab !== "users" && <button className={styles.primaryButton} onClick={() => { setModal(activeTab === "models" ? "model" : activeTab === "skills" ? "skill" : "tool"); setFormName(""); setFormDetail(""); setFormId(""); }}><Icon name="plus"/>Добавить {activeTab === "models" ? "модель" : activeTab === "skills" ? "навык" : "инструмент"}</button>}
         </div>
-        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "models" ? "Активные модели" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>{activeTab === "users" ? "Данные из BPM" : "Предварительный просмотр"}</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>{activeTab === "users" ? "Список сотрудников синхронизируется с BPM при открытии страницы. Управление workspace пока не подключено." : "Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников."}</span></div></div></>}
+        <div className={styles.statsRow}><div className={styles.statCard}><span>{activeTab === "users" ? "Всего сотрудников" : activeTab === "models" ? "Активные модели" : activeTab === "skills" ? "Активные навыки" : "Активные инструменты"}</span><strong>{activeCount}</strong></div><div className={styles.statCard}><span>Режим</span><strong className={styles.statStatus}><i/>{activeTab === "users" ? "Данные из BPM" : "Предварительный просмотр"}</strong></div><div className={styles.notice}><span className={styles.noticeIcon}>i</span><span>{activeTab === "users" ? "Пересоздание заменяет прежние файлы шаблона актуальными. Личные файлы и история чатов сохраняются." : "Это макет интерфейса. Изменения выполняются локально и не влияют на сотрудников."}</span></div></div></>}
 
         {activeTab === "users" && <section className={styles.panel}>
           <div className={styles.panelHeader}><div><h2>Сотрудники BPM</h2><p>Актуальные профили из BuhgalterBPM</p></div><label className={styles.search}><Icon name="search" size={17}/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск сотрудника"/></label></div>
           {usersLoading ? <div className={styles.emptyState}>Загружаем сотрудников…</div> : usersError ? <div className={styles.emptyState} role="alert">{usersError}. Обновите страницу, чтобы повторить попытку.</div> : <>
+          {resetFeedback && <div className={styles.workspaceFeedback} role={resetFeedback.error ? "alert" : "status"}>{resetFeedback.text}</div>}
           {!workerAvailable && <div className={styles.emptyState} role="status">Состояние worker-ов сейчас недоступно. Список сотрудников загружен из BPM.</div>}
-          <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>СОТРУДНИК</th><th>РОЛЬ</th><th>СТАТУС BPM</th><th>WORKER</th><th className={styles.actionsHeading}>ДЕЙСТВИЯ</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><div className={styles.employee}><div className={styles.avatar}>{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div></td><td><Badge tone={user.role === "admin" || user.role === "tech" ? "blue" : "neutral"}>{roles[user.role] || user.role}</Badge></td><td><Badge tone={user.status === "active" ? "green" : "amber"}>{statusLabels[user.status] || user.status}</Badge></td><td><Badge tone={user.worker === "running" ? "green" : user.worker === "stopped" ? "amber" : "neutral"}><i className={styles.badgeDot}/>{workerLabels[user.worker]}</Badge></td><td className={styles.actionsCell}><button className={styles.secondaryButton} disabled title="Пересоздание workspace будет подключено позже"><Icon name="refresh" size={15}/>Пересоздать workspace</button></td></tr>)}</tbody></table>{filteredUsers.length === 0 && <div className={styles.emptyState}>Сотрудники не найдены</div>}</div>
-          <footer className={styles.panelFooter}>Показано {filteredUsers.length} из {users.length} записей <span>Источник: BuhgalterBPM · управление workspace пока недоступно</span></footer></>}
+          <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>СОТРУДНИК</th><th>РОЛЬ</th><th>СТАТУС BPM</th><th>WORKER</th><th>ШАБЛОН</th><th className={styles.actionsHeading}>ДЕЙСТВИЯ</th></tr></thead><tbody>{filteredUsers.map((user) => <tr key={user.id}><td><div className={styles.employee}><div className={styles.avatar}>{user.name.split(" ").map((part) => part[0]).slice(0, 2).join("")}</div><div><strong>{user.name}</strong><span>{user.email}</span></div></div></td><td><Badge tone={user.role === "admin" || user.role === "tech" ? "blue" : "neutral"}>{roles[user.role] || user.role}</Badge></td><td><Badge tone={user.status === "active" ? "green" : "amber"}>{statusLabels[user.status] || user.status}</Badge></td><td><Badge tone={user.worker === "running" ? "green" : user.worker === "stopped" ? "amber" : "neutral"}><i className={styles.badgeDot}/>{workerLabels[user.worker]}</Badge></td><td>{user.workspaceTemplate ? <div className={styles.templateMeta}><code title={user.workspaceTemplate.revision}>{user.workspaceTemplate.revision.slice(0, 8)}</code><small>{templateRevision ? user.workspaceTemplate.revision === templateRevision ? "Актуальный" : "Есть изменения" : "Выданный шаблон"} · файлов: {user.workspaceTemplate.trackedFiles}</small></div> : <span className={styles.templateMeta}>{user.worker === "not-created" ? "Ещё не выдан" : "Нет истории"}</span>}</td><td className={styles.actionsCell}><button className={styles.secondaryButton} disabled={!workerAvailable || user.worker === "not-created" || user.worker === "unknown" || resettingUserId !== null} title={user.worker === "not-created" ? "Сотруднику нужно сначала войти в AI-чат" : "Заменить прежние файлы шаблона, сохранив личные файлы и чаты"} onClick={() => { void resetWorkspace(user); }} aria-busy={resettingUserId === user.id}><Icon name="refresh" size={15}/>{resettingUserId === user.id ? "Пересоздаём…" : "Пересоздать workspace"}</button></td></tr>)}</tbody></table>{filteredUsers.length === 0 && <div className={styles.emptyState}>Сотрудники не найдены</div>}</div>
+          <footer className={styles.panelFooter}>Показано {filteredUsers.length} из {users.length} записей <span>Источник: BuhgalterBPM · шаблоны workspace отслеживаются</span></footer></>}
         </section>}
 
         {activeTab === "files" && <section className={`${styles.panel} ${styles.filesPanel}`}>
           <div className={`${styles.panelHeader} ${styles.fileToolbar}`}><div className={styles.fileActions}><button className={styles.primaryButton} onClick={addFile} disabled={filesLoading || fileMutationPending}><Icon name="plus"/>Добавить файл</button><button className={styles.secondaryButton} onClick={addFolder} disabled={filesLoading || fileMutationPending}><Icon name="plus" size={15}/>Новая папка</button></div></div>
-          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span></div><div className={styles.fileBreadcrumbs}><button onClick={() => openDirectory("")}>Workspace</button>{directoryBreadcrumbs.map((crumb) => <Fragment key={crumb.path}><Icon name="chevron" size={12}/><button onClick={() => openDirectory(crumb.path)}>{crumb.name}</button></Fragment>)}</div>{filesLoading ? <div className={styles.emptyDirectory}>Загружаем файлы…</div> : filesError ? <div className={styles.emptyDirectory} role="alert">{filesError}</div> : <>{directoryEntries.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => { if (file.kind === "folder") openDirectory(file.path); else void chooseFile(file); }} onContextMenu={(event) => showFileContextMenu(event, file)} aria-haspopup="menu"><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}{directoryEntries.length === 0 && <div className={styles.emptyDirectory}>В этой папке пока нет файлов</div>}</>}<div className={styles.fileHint}>Файлы-шаблоны доступны всем сотрудникам. При изменении шаблона уже созданные workspace автоматически не меняются.</div></div>
+          <div className={styles.fileWorkspace}><div className={styles.fileList}><div className={styles.fileListHeader}><span>ШАБЛОН WORKSPACE</span></div><div className={styles.fileBreadcrumbs}><button onClick={() => openDirectory("")}>Workspace</button>{directoryBreadcrumbs.map((crumb) => <Fragment key={crumb.path}><Icon name="chevron" size={12}/><button onClick={() => openDirectory(crumb.path)}>{crumb.name}</button></Fragment>)}</div>{filesLoading ? <div className={styles.emptyDirectory}>Загружаем файлы…</div> : filesError ? <div className={styles.emptyDirectory} role="alert">{filesError}</div> : <>{directoryEntries.map((file) => <button key={file.path} className={`${styles.fileRow} ${selectedFile === file.path ? styles.fileSelected : ""}`} onClick={() => { if (file.kind === "folder") openDirectory(file.path); else void chooseFile(file); }} onContextMenu={(event) => showFileContextMenu(event, file)} aria-haspopup="menu"><Icon name={file.kind === "folder" ? "folder" : "file"} size={16}/><span>{file.name}</span>{file.kind === "folder" && <span className={styles.fileCount}>›</span>}</button>)}{directoryEntries.length === 0 && <div className={styles.emptyDirectory}>В этой папке пока нет файлов</div>}</>}<div className={styles.fileHint}>{templateRevision && <>Версия: <code>{templateRevision.slice(0, 8)}</code>. </>}Изменения применяются при первом входе или по кнопке «Пересоздать workspace» в разделе «Пользователи». Прежние файлы шаблона заменяются, личные файлы сохраняются.</div></div>
             <div className={styles.preview}><div className={styles.previewTop}><div className={styles.previewPath}><Icon name="file" size={15}/><span>{selectedFile || "Выберите файл"}</span></div><div className={styles.previewActions}>{editingFile ? <><button className={styles.secondaryButton} onClick={() => { void chooseFile(currentFile!); }} disabled={fileSaving}>Отмена</button><button className={styles.primaryButtonSmall} onClick={() => { void saveFile(); }} disabled={fileSaving || fileLoading}><Icon name="check" size={14}/>{fileSaving ? "Сохраняем…" : "Сохранить"}</button></> : <><button className={styles.iconButton} title="Удалить файл" onClick={() => { void deleteFile(); }} disabled={!currentFile || fileLoading || fileMutationPending}><Icon name="trash" size={16}/></button><button className={styles.secondaryButton} onClick={() => setEditingFile(true)} disabled={!currentFile || fileLoading || fileMutationPending}><Icon name="edit" size={15}/>Изменить</button></>}</div></div>
               <div className={styles.previewBody}>{fileLoading ? <div className={styles.emptyPreview}><span>Загружаем файл…</span></div> : editingFile ? <textarea className={styles.editor} value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck={false} aria-label="Содержимое файла"/> : currentFile ? fileDraft ? <MarkdownBody className={styles.fileMarkdown}>{fileDraft}</MarkdownBody> : <div className={styles.emptyPreview}><Icon name="file" size={25}/><span>Файл пустой. Нажмите «Изменить», чтобы добавить содержимое.</span></div> : <div className={styles.emptyPreview}><Icon name="files" size={28}/><span>Выберите файл для предпросмотра</span></div>}</div>
               <div className={styles.previewFooter}><span>{editingFile ? "Режим редактирования" : "Предпросмотр файла"}</span><span>{fileDraft.length} символов</span></div></div></div>

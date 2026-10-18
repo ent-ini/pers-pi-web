@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
-import { chmod, chown, cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, chown, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { request as dockerRequest } from "node:http";
 import { createTemplateStore } from "./template-store.mjs";
+import { createWorkspaceTemplates, snapshotTemplate } from "./workspace-template.mjs";
+import { resetStoppedWorker, serialize } from "./workspace-reset.mjs";
 
 const socketPath = "/var/run/docker.sock";
 const dataRoot = "/data/pi-web/users";
@@ -12,6 +14,8 @@ const secret = process.env.PI_WEB_WORKER_MANAGER_SECRET || "";
 const network = process.env.PI_WEB_WORKER_NETWORK || "pi-web-internal";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const templateStore = createTemplateStore(templateRoot);
+const workspaceTemplates = createWorkspaceTemplates({ stateRoot: "/data/pi-web/control/workspace-templates" });
+const templateSnapshot = () => serialize("template", () => snapshotTemplate(templateRoot));
 
 if (secret.length < 32) throw new Error("PI_WEB_WORKER_MANAGER_SECRET must be at least 32 characters.");
 
@@ -40,27 +44,24 @@ function safeEmployeeId(value) {
   if (typeof value !== "string" || !UUID.test(value)) throw new Error("Invalid employee identifier.");
   return value.toLowerCase();
 }
-async function chownTree(path) {
-  const info = await stat(path);
-  await chown(path, 10001, 10001);
-  await chmod(path, info.isDirectory() ? 0o700 : 0o600);
-  if (info.isDirectory()) for (const entry of await readdir(path)) await chownTree(`${path}/${entry}`);
-}
-async function applyTemplate(workspace) {
-  await mkdir(templateRoot, { recursive: true, mode: 0o750 });
-  await cp(templateRoot, workspace, { recursive: true, force: false });
-  await chownTree(workspace);
-}
 async function prepareDirectories(employeeId) {
   const root = `${dataRoot}/${employeeId}`;
   let created = false;
-  try { await stat(root); } catch { created = true; }
+  try {
+    const info = await lstat(root);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid worker root.");
+  } catch (error) { if (error.code === "ENOENT") created = true; else throw error; }
   for (const path of [root, `${root}/agent`, `${root}/workspace`]) {
     await mkdir(path, { recursive: true, mode: 0o700 });
+    const info = await lstat(path);
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid worker directory.");
     await chown(path, 10001, 10001);
     await chmod(path, 0o700);
   }
-  if (created) await applyTemplate(`${root}/workspace`);
+  // Retry an interrupted first provision only while no user has been registered.
+  if (created || (!(await workspaceTemplates.read(employeeId)) && !(await users())[employeeId])) {
+    await workspaceTemplates.apply(employeeId, `${root}/workspace`, await templateSnapshot());
+  }
   return root;
 }
 async function users() {
@@ -94,7 +95,8 @@ async function start(name) {
   await docker("POST", `/containers/${name}/start`).catch((error) => { if (!String(error).includes(" 304 ")) throw error; });
 }
 async function ensureWorker(identity) {
-  const employeeId = await recordUser(identity);
+  const employeeId = safeEmployeeId(identity?.id);
+  await workspaceTemplates.assertHealthy(employeeId);
   const name = containerName(employeeId);
   let info;
   try { info = await docker("GET", `/containers/${name}/json`); } catch (error) { if (!String(error).includes(" 404 ")) throw error; }
@@ -112,20 +114,20 @@ async function ensureWorker(identity) {
     } catch (error) { if (!String(error).includes(" 409 ")) throw error; info = await docker("GET", `/containers/${name}/json`); }
     if (!info || !info.State.Running) await start(name);
   } else if (!info.State.Running) await start(name);
-  const url = `http://${name}:30141`; await waitForWorker(url); return url;
+  const url = `http://${name}:30141`; await waitForWorker(url);
+  await serialize("registry", () => recordUser(identity));
+  return url;
 }
 async function resetWorkspace(employeeId) {
   employeeId = safeEmployeeId(employeeId);
   const root = `${dataRoot}/${employeeId}`;
-  await stat(root);
-  const name = containerName(employeeId);
-  let wasRunning = false;
-  try { const info = await docker("GET", `/containers/${name}/json`); wasRunning = Boolean(info.State.Running); if (wasRunning) await docker("POST", `/containers/${name}/stop?t=10`); } catch (error) { if (!String(error).includes(" 404 ")) throw error; }
-  const workspace = `${root}/workspace`;
-  await rm(workspace, { recursive: true, force: true });
-  await mkdir(workspace, { recursive: true, mode: 0o700 });
-  await applyTemplate(workspace);
-  if (wasRunning) await start(name);
+  const info = await lstat(root).catch((error) => { if (error.code === "ENOENT") { const missing = new Error("Workspace ещё не создан. Сотруднику нужно сначала войти в AI-чат."); missing.status = 404; throw missing; } throw error; });
+  if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Invalid worker root.");
+  const snapshot = await templateSnapshot();
+  return resetStoppedWorker({
+    name: containerName(employeeId), docker, start, wait: waitForWorker,
+    apply: () => workspaceTemplates.apply(employeeId, `${root}/workspace`, snapshot),
+  });
 }
 function send(response, status, payload) { response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }); response.end(JSON.stringify(payload)); }
 async function body(request) { let raw = ""; for await (const part of request) raw += part; return raw ? JSON.parse(raw) : {}; }
@@ -134,25 +136,38 @@ createServer(async (request, response) => {
   if (request.headers.authorization !== `Bearer ${secret}`) return send(response, 401, { error: "Unauthorized" });
   const url = new URL(request.url, "http://manager");
   try {
-    if (request.method === "POST" && url.pathname === "/workers/ensure") return send(response, 200, { url: await ensureWorker((await body(request)).identity) });
+    if (request.method === "POST" && url.pathname === "/workers/ensure") {
+      const identity = (await body(request)).identity;
+      const id = safeEmployeeId(identity?.id);
+      return send(response, 200, { url: await serialize(`user:${id}`, () => ensureWorker(identity)) });
+    }
     if (request.method === "GET" && url.pathname === "/admin/users") {
       const all = await users();
       const result = await Promise.all(Object.values(all).map(async (user) => {
         const id = user.id; let running = false;
         try { running = Boolean((await docker("GET", `/containers/${containerName(id)}/json`)).State.Running); } catch { /* worker was never created or was removed */ }
-        return { ...user, running };
+        const manifest = await workspaceTemplates.read(id);
+        const workspaceTemplate = manifest ? { revision: manifest.revision, appliedAt: manifest.appliedAt, trackedFiles: manifest.entries.filter((entry) => entry.type === "file").length } : null;
+        return { ...user, running, workspaceTemplate };
       }));
       return send(response, 200, { users: result });
     }
-    if (request.method === "GET" && url.pathname === "/admin/template/tree") return send(response, 200, { entries: await templateStore.list() });
+    if (request.method === "GET" && url.pathname === "/admin/template/tree") {
+      const snapshot = await templateSnapshot();
+      return send(response, 200, { entries: snapshot.entries, revision: snapshot.revision });
+    }
     if (request.method === "GET" && url.pathname === "/admin/template/file") return send(response, 200, { content: await templateStore.read(url.searchParams.get("path")) });
     const payload = await body(request);
-    if (request.method === "PUT" && url.pathname === "/admin/template/file") { await templateStore.write(payload.path, payload.content); return send(response, 200, { ok: true }); }
-    if (request.method === "POST" && url.pathname === "/admin/template/file") { await templateStore.createFile(payload.path); return send(response, 201, { ok: true }); }
-    if (request.method === "POST" && url.pathname === "/admin/template/directory") { await templateStore.createDirectory(payload.path); return send(response, 200, { ok: true }); }
-    if (request.method === "PATCH" && url.pathname === "/admin/template/entry") { await templateStore.rename(payload.path, payload.name); return send(response, 200, { ok: true }); }
-    if (request.method === "DELETE" && url.pathname === "/admin/template/entry") { await templateStore.remove(payload.path); return send(response, 200, { ok: true }); }
-    if (request.method === "POST" && /^\/admin\/users\/[^/]+\/reset-workspace$/.test(url.pathname)) { await resetWorkspace(url.pathname.split("/")[3]); return send(response, 200, { ok: true }); }
+    if (request.method === "PUT" && url.pathname === "/admin/template/file") { await serialize("template", () => templateStore.write(payload.path, payload.content)); return send(response, 200, { ok: true }); }
+    if (request.method === "POST" && url.pathname === "/admin/template/file") { await serialize("template", () => templateStore.createFile(payload.path)); return send(response, 201, { ok: true }); }
+    if (request.method === "POST" && url.pathname === "/admin/template/directory") { await serialize("template", () => templateStore.createDirectory(payload.path)); return send(response, 200, { ok: true }); }
+    if (request.method === "PATCH" && url.pathname === "/admin/template/entry") { await serialize("template", () => templateStore.rename(payload.path, payload.name)); return send(response, 200, { ok: true }); }
+    if (request.method === "DELETE" && url.pathname === "/admin/template/entry") { await serialize("template", () => templateStore.remove(payload.path)); return send(response, 200, { ok: true }); }
+    if (request.method === "POST" && /^\/admin\/users\/[^/]+\/reset-workspace$/.test(url.pathname)) {
+      const id = safeEmployeeId(url.pathname.split("/")[3]);
+      const result = await serialize(`user:${id}`, () => resetWorkspace(id));
+      return send(response, 200, { ok: true, ...result });
+    }
     return send(response, 404, { error: "Not found" });
-  } catch (error) { console.error("[worker-manager] request failed", error); return send(response, 400, { error: error instanceof Error ? error.message : "Request failed" }); }
+  } catch (error) { console.error("[worker-manager] request failed", error); return send(response, error.status || 400, { error: error instanceof Error ? error.message : "Request failed" }); }
 }).listen(3030, "0.0.0.0", () => console.log("worker manager listening on :3030"));

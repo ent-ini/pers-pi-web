@@ -1,3 +1,27 @@
+.templateMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.templateMeta small {
+  white-space: nowrap;
+}
+
+.workspaceFeedback {
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--line);
+  color: var(--green-ink);
+  overflow-wrap: anywhere;
+}
+
+.workspaceFeedback[role="alert"] {
+  color: var(--denied-ink);
+  background: var(--denied-bg);
+}
+
 /*
   Admin palette. Light values live on `.admin` / `.centerState`, dark values are
   overridden for every theme pi-web resolves as dark (`dark`, `pine`), so the
