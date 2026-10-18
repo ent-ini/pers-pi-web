@@ -6,6 +6,7 @@ const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, module
 const { GET, POST } = await jiti.import("./[employeeId]/[...path]/route.ts");
 const { NextRequest } = await jiti.import("next/server");
 const { createMultiuseSessionToken } = await jiti.import("../../../../lib/multiuse-auth.ts");
+const { isApiRequestAllowed } = await jiti.import("../../../../lib/request-security.ts");
 const id = "2b0b19f0-7a39-4e85-8c08-886cefc3dac1";
 const config = { bpmApiUrl: "https://bpm.example.test", sessionSecret: "test-session-secret-".repeat(3) };
 const originalFetch = globalThis.fetch;
@@ -13,6 +14,7 @@ const originalEnv = { ...process.env };
 const workerUrl = "http://pi_worker_test:30141";
 
 test.before(() => {
+  process.env.PI_WEB_ALLOWED_HOSTS = "ai.example.test";
   process.env.PI_WEB_BPM_API_URL = config.bpmApiUrl;
   process.env.PI_WEB_MULTI_SESSION_SECRET = config.sessionSecret;
   process.env.PI_WEB_WORKER_MANAGER_URL = "http://manager.test:3030";
@@ -20,19 +22,26 @@ test.before(() => {
 });
 test.after(() => { globalThis.fetch = originalFetch; process.env = originalEnv; });
 
-function request(path, { method = "GET", cookie = true, body } = {}) {
+function request(path, { method = "GET", cookie = true, body, origin, fetchSite, forwardedProto, protocol = "https", host = "ai.example.test" } = {}) {
   const token = createMultiuseSessionToken("bpm-token", { id, email: "user@example.test", fullName: "Сотрудник", role: "employee", status: "active" }, config);
-  return new NextRequest(`https://ai.example.test${path}`, { method, body, headers: {
-    host: "ai.example.test", ...(cookie ? { cookie: `pi_web_multi_session=${token}` } : {}),
+  return new NextRequest(`${protocol}://${host}${path}`, { method, body, headers: {
+    host, ...(cookie ? { cookie: `pi_web_multi_session=${token}` } : {}),
+    ...(origin ? { origin } : {}), ...(fetchSite ? { "sec-fetch-site": fetchSite } : {}),
+    ...(forwardedProto ? { "x-forwarded-proto": forwardedProto } : {}),
   } });
 }
 const context = (path, employeeId = id) => ({ params: Promise.resolve({ employeeId, path }) });
 function mockFetch() {
   const calls = [];
+  calls.managerRequests = 0;
   globalThis.fetch = async (input, init) => {
     const url = new URL(input);
-    if (url.hostname === "manager.test") return Response.json({ url: workerUrl });
+    if (url.hostname === "manager.test") { calls.managerRequests++; return Response.json({ url: workerUrl }); }
     calls.push({ url, init });
+    const headers = new Headers(init.headers);
+    headers.set("host", url.host); // Node fetch supplies the upstream Host.
+    const workerRequest = new Request(url, { method: init.method, headers });
+    if (!isApiRequestAllowed(workerRequest, [url.hostname])) return Response.json({ error: "Untrusted API request" }, { status: 403 });
     if (url.pathname === "/api/file-explorer/pins") return url.searchParams.get("cwd")
       ? Response.json({ paths: [] }) : Response.json({ error: "cwd must be an absolute path" }, { status: 400 });
     if (url.pathname.startsWith("/api/files/")) return url.searchParams.get("type") === "read"
@@ -79,6 +88,48 @@ test("query parameters survive POST as well; requests without a query remain unc
   assert.equal(calls[0].init.method, "POST");
   await GET(request("/api/home"), context(["home"]));
   assert.equal(calls[1].url.href, `${workerUrl}/api/home`);
+});
+
+test("browser message POST passes worker security with a translated, validated Origin", async () => {
+  const calls = mockFetch();
+  const response = await POST(request("/api/agent/new", { method: "POST", body: "{}", origin: "https://ai.example.test", fetchSite: "same-origin" }), context(["agent", "new"]));
+  assert.equal(response.status, 200);
+  assert.equal(calls[0].init.headers.get("origin"), workerUrl);
+  assert.equal(calls[0].init.headers.get("sec-fetch-site"), "same-origin");
+  assert.equal(await new Response(calls[0].init.body).text(), "{}", "forwarding must retain the message body");
+});
+
+test("HTTPS browser origin behind an HTTP reverse proxy is validated before translation", async () => {
+  const calls = mockFetch();
+  const response = await POST(request("/api/agent/new", {
+    method: "POST", body: "{}", origin: "https://ai.example.test", fetchSite: "same-origin", forwardedProto: "https", protocol: "http",
+  }), context(["agent", "new"]));
+  assert.equal(response.status, 200);
+  assert.equal(calls[0].init.headers.get("origin"), workerUrl);
+  assert.equal(calls[0].init.headers.has("x-forwarded-proto"), false);
+});
+
+test("foreign/null origins, cross-site fetches and untrusted hosts are rejected before ensureWorker", async () => {
+  for (const options of [
+    { origin: "https://evil.example.test", fetchSite: "same-site" },
+    { origin: "null" },
+    { origin: "https://ai.example.test", fetchSite: "cross-site" },
+    { host: "evil.example.test", origin: "https://evil.example.test" },
+    { origin: workerUrl }, // An internal Origin from a browser is not trusted either.
+  ]) {
+    const calls = mockFetch();
+    const response = await POST(request("/api/agent/new", { method: "POST", body: "{}", ...options }), context(["agent", "new"]));
+    assert.equal(response.status, 403, JSON.stringify(options));
+    assert.equal(calls.length, 0);
+    assert.equal(calls.managerRequests, 0);
+  }
+});
+
+test("non-browser requests without Origin keep it absent", async () => {
+  const calls = mockFetch();
+  const response = await POST(request("/api/agent/new", { method: "POST", body: "{}" }), context(["agent", "new"]));
+  assert.equal(response.status, 200);
+  assert.equal(calls[0].init.headers.has("origin"), false);
 });
 
 test("unauthenticated and cross-employee requests never reach a worker", async () => {

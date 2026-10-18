@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readMultiuseSessionToken, PI_WEB_MULTI_SESSION_COOKIE } from "@/lib/multiuse-auth";
 import { getMultiuseConfig } from "@/lib/multiuse-config";
 import { ensureWorker } from "@/lib/worker-manager";
+import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ function sessionFor(request: NextRequest) {
   );
 }
 
-function requestHeaders(request: NextRequest): Headers {
+function requestHeaders(request: NextRequest, upstreamOrigin: string): Headers {
   const headers = new Headers();
   request.headers.forEach((value, key) => {
     const lower = key.toLowerCase();
@@ -22,6 +23,10 @@ function requestHeaders(request: NextRequest): Headers {
       headers.set(key, value);
     }
   });
+  // The public request has already passed Host/Origin checks. The worker sees
+  // an internal Host, so retaining the browser's public Origin fails its CSRF
+  // checks. Translate only an existing, validated Origin; never trust it first.
+  if (headers.has("origin")) headers.set("origin", upstreamOrigin);
   return headers;
 }
 
@@ -36,6 +41,7 @@ function responseHeaders(response: Response): Headers {
 }
 
 async function forward(request: NextRequest, context: { params: Promise<{ employeeId: string; path: string[] }> }) {
+  if (!isApiRequestAllowed(request)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   const { employeeId, path } = await context.params;
   let session;
   try {
@@ -55,7 +61,7 @@ async function forward(request: NextRequest, context: { params: Promise<{ employ
     target.search = request.nextUrl.search;
     const upstream = await fetch(target, {
       method: request.method,
-      headers: requestHeaders(request),
+      headers: requestHeaders(request, target.origin),
       body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
       // Node's fetch requires this for a streamed Next.js request body.
       // @ts-expect-error duplex is implemented by Node's fetch.

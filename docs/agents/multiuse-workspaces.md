@@ -14,6 +14,8 @@ The multiuser admin UI is `components/MultiuseAdmin.tsx`; it must not change per
 
 `proxy.ts` preserves the incoming query when rewriting legacy `/api/*` requests to `/api/multi/worker/<uuid>/*`. The worker route must preserve it again on its upstream URL (`target.search = request.nextUrl.search`). Omitting it drops `type=read` (the files endpoint defaults to listing and reports `Not a directory` for files) and `cwd=/workspace` (pins returns 400), as well as download/upload/preview filters. Encode path segments separately and retain query encoding/repeated values. Regression tests: `app/api/multi/worker/worker-route.test.mjs`.
 
+Browser POST/PUT/PATCH requests include the public HTTPS `Origin`, whereas a worker receives an internal HTTP `Host`. The worker route first validates the original request with `isApiRequestAllowed()` (in addition to the outer proxy), then rewrites an existing Origin to `target.origin`. Do not merely remove/rewrite Origin before checking it: that would hide malicious cross-site requests. Requests without Origin retain that absence; corporate cookies, Authorization and x-forwarded headers never reach workers. Tests exercise the real worker Host/Origin validator, including TLS reverse-proxy headers and rejection before worker provisioning.
+
 ## Reset semantics
 
 1. Serialize ensure/reset per employee, capture the canonical snapshot, stop a running worker (including any active AI turn).
