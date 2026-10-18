@@ -243,6 +243,7 @@ export const zhTWLocale: LocalePlugin = {
     "session.load": "傳送訊息或執行 /session 以載入工作階段資訊",
     "session.infoSection": "工作階段資訊",
     "session.projectSection": "專案資訊",
+    "session.limits": "額度",
     "session.messages": "訊息",
     "session.tokens": "Token",
     "session.totalActive": "活躍時間",

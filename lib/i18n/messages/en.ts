@@ -243,6 +243,7 @@ export const enLocale: LocalePlugin = {
     "session.load": "Send a message or run /session to load session info",
     "session.infoSection": "Session Info",
     "session.projectSection": "Project Info",
+    "session.limits": "Limits",
     "session.messages": "Messages",
     "session.tokens": "Tokens",
     "session.totalActive": "Active Time",
