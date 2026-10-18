@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createJiti } from "jiti";
+import { createServer } from "node:http";
+import { gzipSync } from "node:zlib";
 
 const jiti = createJiti(import.meta.url, { alias: { "@": process.cwd() }, moduleCache: false });
 const { GET, POST } = await jiti.import("./[employeeId]/[...path]/route.ts");
@@ -76,6 +78,7 @@ test("preserves encoded/repeated query values and path segments without leaking 
   assert.equal(calls[0].url.origin, workerUrl);
   assert.equal(calls[0].init.headers.has("cookie"), false);
   assert.equal(calls[0].init.headers.has("authorization"), false);
+  assert.equal(calls[0].init.headers.get("accept-encoding"), "identity");
   await GET(request("/api/files/workspace/test?type=read"), context(["files", "workspace", "a?b#c.md"]));
   assert.equal(calls[1].url.pathname, "/api/files/workspace/a%3Fb%23c.md");
   assert.equal(calls[1].url.search, "?type=read");
@@ -130,6 +133,28 @@ test("non-browser requests without Origin keep it absent", async () => {
   const response = await POST(request("/api/agent/new", { method: "POST", body: "{}" }), context(["agent", "new"]));
   assert.equal(response.status, 200);
   assert.equal(calls[0].init.headers.has("origin"), false);
+});
+
+test("a real gzipped upstream response is decoded once, without stale encoding/length or worker cookies", async () => {
+  const payload = { text: "Тест сжатого ответа. ".repeat(100) };
+  const compressed = gzipSync(JSON.stringify(payload));
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { "content-type": "application/json", "content-encoding": "gzip", "content-length": compressed.length, "set-cookie": "worker=private" });
+    response.end(compressed);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    globalThis.fetch = async (input) => new URL(input).hostname === "manager.test"
+      ? Response.json({ url: workerUrl }) : originalFetch(`http://127.0.0.1:${server.address().port}`);
+    const response = await GET(request("/api/sessions/test"), context(["sessions", "test"]));
+    assert.deepEqual(await response.json(), payload, "Node fetch already decompressed the response body");
+    assert.equal(response.headers.has("content-encoding"), false, "browser must not attempt gzip decoding again");
+    assert.equal(response.headers.has("content-length"), false);
+    assert.equal(response.headers.has("set-cookie"), false);
+  } finally {
+    server.closeAllConnections();
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("unauthenticated and cross-employee requests never reach a worker", async () => {

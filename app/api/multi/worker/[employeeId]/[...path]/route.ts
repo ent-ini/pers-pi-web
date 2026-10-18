@@ -27,6 +27,8 @@ function requestHeaders(request: NextRequest, upstreamOrigin: string): Headers {
   // an internal Host, so retaining the browser's public Origin fails its CSRF
   // checks. Translate only an existing, validated Origin; never trust it first.
   if (headers.has("origin")) headers.set("origin", upstreamOrigin);
+  // Only the public reverse proxy should negotiate browser compression.
+  headers.set("accept-encoding", "identity");
   return headers;
 }
 
@@ -34,8 +36,11 @@ function responseHeaders(response: Response): Headers {
   const headers = new Headers();
   response.headers.forEach((value, key) => {
     const lower = key.toLowerCase();
-    // A worker never gets to set cookies on the corporate origin.
-    if (!HOP_BY_HOP_HEADERS.has(lower) && lower !== "set-cookie") headers.set(key, value);
+    // fetch transparently decodes compressed upstream bodies but retains their
+    // encoding header. Forwarding it makes browsers decompress JSON/HTML twice.
+    // content-length is already stripped by HOP_BY_HOP_HEADERS for the same reason.
+    // A worker also never gets to set cookies on the corporate origin.
+    if (!HOP_BY_HOP_HEADERS.has(lower) && lower !== "set-cookie" && lower !== "content-encoding") headers.set(key, value);
   });
   return headers;
 }

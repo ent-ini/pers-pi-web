@@ -34,6 +34,8 @@ export async function workerManagerRequest(path: string, init: RequestInit = {})
 export async function ensureWorker(identity: MultiuseIdentity): Promise<string> {
   const response = await workerManagerRequest("/workers/ensure", {
     method: "POST",
+    // A moved image tag may require stop + replacement + readiness checks.
+    signal: AbortSignal.timeout(45_000),
     body: JSON.stringify({ identity }),
   });
   if (!response.ok) throw new Error(`Worker manager request failed (${response.status}).`);

@@ -16,6 +16,16 @@ The multiuser admin UI is `components/MultiuseAdmin.tsx`; it must not change per
 
 Browser POST/PUT/PATCH requests include the public HTTPS `Origin`, whereas a worker receives an internal HTTP `Host`. The worker route first validates the original request with `isApiRequestAllowed()` (in addition to the outer proxy), then rewrites an existing Origin to `target.origin`. Do not merely remove/rewrite Origin before checking it: that would hide malicious cross-site requests. Requests without Origin retain that absence; corporate cookies, Authorization and x-forwarded headers never reach workers. Tests exercise the real worker Host/Origin validator, including TLS reverse-proxy headers and rejection before worker provisioning.
 
+`fetch` transparently decodes gzip/br/deflate but keeps upstream `Content-Encoding`. Strip it (and the old Content-Length) before returning `upstream.body`, otherwise Firefox/Safari decode it twice (`NS_ERROR_INVALID_CONTENT_ENCODING`, `TypeError: Decoding failed`). Request `Accept-Encoding: identity` on the internal hop; the public reverse proxy may negotiate compression independently. The proxy regression test uses a real gzipped HTTP response, not just a fabricated JSON Response.
+
+## Worker image upgrades are not workspace resets
+
+Docker containers retain an immutable image ID even when the deployment's `:latest` tag moves. On each ensure, manager resolves the configured image tag and compares it with container `Image`. A mismatch is replaced under the per-employee ensure/reset lock: stop/rename old container, create the original name on the resolved immutable ID with **the same agent/workspace bind mounts**, start and wait for readiness, then delete the stopped previous container. No template reset, directory replacement, key copying or data deletion occurs. A deployment can interrupt an active AI turn; persistent chats/files/credentials remain. Ensure's control-plane timeout is 45 seconds to allow stop/readiness/rollback.
+
+Creation/readiness failure rolls back to the previous container/name and its prior running/stopped state. A stopped previous container is retained for operator recovery if cleanup/rollback fails. See `multiuse-manager/worker-image.mjs` and its lifecycle tests.
+
+This also prevents frontend/worker SDK drift: the old 0.87.1 worker lacked `/api/sessions/ui-state` and `/api/open-in-explorer`, and its long-lived auth state could miss keys saved after chat creation. SDK 1.1.0 rereads changed credentials; `lib/provider-credential-store.test.mjs` pins saving/replacing/removing a key against the **same** ModelRuntime without restarting a chat. Never change or expose the user's real API key as a workaround.
+
 ## Reset semantics
 
 1. Serialize ensure/reset per employee, capture the canonical snapshot, stop a running worker (including any active AI turn).

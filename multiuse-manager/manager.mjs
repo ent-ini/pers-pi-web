@@ -4,6 +4,7 @@ import { request as dockerRequest } from "node:http";
 import { createTemplateStore } from "./template-store.mjs";
 import { createWorkspaceTemplates, snapshotTemplate } from "./workspace-template.mjs";
 import { resetStoppedWorker, serialize } from "./workspace-reset.mjs";
+import { assertWorkerMounts, replaceWorkerImage } from "./worker-image.mjs";
 
 const socketPath = "/var/run/docker.sock";
 const dataRoot = "/data/pi-web/users";
@@ -94,24 +95,39 @@ async function waitForWorker(url) {
 async function start(name) {
   await docker("POST", `/containers/${name}/start`).catch((error) => { if (!String(error).includes(" 304 ")) throw error; });
 }
+async function createWorker(name, root, imageId) {
+  await docker("POST", `/containers/create?name=${name}`, {
+    Image: imageId, Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
+    Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", "PI_WEB_LOCKED_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
+    HostConfig: { NetworkMode: network, ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], PidsLimit: 256, Memory: 2147483648, NanoCpus: 2000000000, Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" }, Mounts: [
+      { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
+      { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
+    ] },
+  });
+}
 async function ensureWorker(identity) {
   const employeeId = safeEmployeeId(identity?.id);
   await workspaceTemplates.assertHealthy(employeeId);
   const name = containerName(employeeId);
+  // Tags move on deployment; an existing container keeps its old immutable
+  // image forever unless explicitly replaced. Pin creation to the resolved ID.
+  const desired = await docker("GET", `/images/${encodeURIComponent(image)}/json`);
+  if (typeof desired?.Id !== "string" || !/^sha256:[a-f0-9]{64}$/.test(desired.Id)) throw new Error("Invalid worker image identifier.");
   let info;
   try { info = await docker("GET", `/containers/${name}/json`); } catch (error) { if (!String(error).includes(" 404 ")) throw error; }
+  if (info && info.Image !== desired.Id) {
+    // Never silently switch to empty/different data after a storage migration.
+    assertWorkerMounts(info, `${dataRoot}/${employeeId}`);
+    const root = await prepareDirectories(employeeId);
+    info = await replaceWorkerImage({
+      name, info, imageId: desired.Id, docker, start, wait: waitForWorker,
+      create: (imageId) => createWorker(name, root, imageId),
+    });
+  }
   if (!info) {
     const root = await prepareDirectories(employeeId);
-    try {
-      await docker("POST", `/containers/create?name=${name}`, {
-        Image: image, Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
-        Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", "PI_WEB_LOCKED_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
-        HostConfig: { NetworkMode: network, ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], PidsLimit: 256, Memory: 2147483648, NanoCpus: 2000000000, Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" }, Mounts: [
-          { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
-          { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
-        ] },
-      });
-    } catch (error) { if (!String(error).includes(" 409 ")) throw error; info = await docker("GET", `/containers/${name}/json`); }
+    try { await createWorker(name, root, desired.Id); }
+    catch (error) { if (!String(error).includes(" 409 ")) throw error; info = await docker("GET", `/containers/${name}/json`); }
     if (!info || !info.State.Running) await start(name);
   } else if (!info.State.Running) await start(name);
   const url = `http://${name}:30141`; await waitForWorker(url);
