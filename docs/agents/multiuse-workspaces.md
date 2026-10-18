@@ -10,6 +10,10 @@ The multiuser admin UI is `components/MultiuseAdmin.tsx`; it must not change per
 - A new workspace gets the current template and a manifest, including for an empty template. Existing workers are **not** silently migrated or assigned ownership over arbitrary files.
 - Admin users API exposes only `workspaceTemplate: { revision, appliedAt, trackedFiles } | null`, not the manifest itself. Template tree also exposes current revision. The UI distinguishes current/changed/unknown templates.
 
+## Worker API forwarding
+
+`proxy.ts` preserves the incoming query when rewriting legacy `/api/*` requests to `/api/multi/worker/<uuid>/*`. The worker route must preserve it again on its upstream URL (`target.search = request.nextUrl.search`). Omitting it drops `type=read` (the files endpoint defaults to listing and reports `Not a directory` for files) and `cwd=/workspace` (pins returns 400), as well as download/upload/preview filters. Encode path segments separately and retain query encoding/repeated values. Regression tests: `app/api/multi/worker/worker-route.test.mjs`.
+
 ## Reset semantics
 
 1. Serialize ensure/reset per employee, capture the canonical snapshot, stop a running worker (including any active AI turn).

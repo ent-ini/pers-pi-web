@@ -49,7 +49,11 @@ async function forward(request: NextRequest, context: { params: Promise<{ employ
 
   try {
     const workerUrl = await ensureWorker(session.identity);
-    const upstream = await fetch(new URL(`/api/${path.map(encodeURIComponent).join("/")}`, workerUrl), {
+    const target = new URL(`/api/${path.map(encodeURIComponent).join("/")}`, workerUrl);
+    // File operations, pinned files and other worker APIs depend on the query.
+    // Keep its encoding/repeated values; dropping it changes read into list.
+    target.search = request.nextUrl.search;
+    const upstream = await fetch(target, {
       method: request.method,
       headers: requestHeaders(request),
       body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
