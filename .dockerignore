@@ -1,5 +1,7 @@
 .git
 .next
 node_modules
+.env*
+.secrets
 npm-debug.log*
 *.log
