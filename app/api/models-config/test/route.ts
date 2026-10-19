@@ -1,3 +1,4 @@
+import "@/lib/corporate-model-runtime";
 import { NextResponse } from "next/server";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";

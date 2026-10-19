@@ -163,3 +163,15 @@ test("unauthenticated and cross-employee requests never reach a worker", async (
   assert.equal((await GET(request("/api/home"), context(["home"], "other-employee"))).status, 401);
   assert.equal(calls.length, 0);
 });
+
+test("direct worker forwarding denies every personal connection API when disabled", async () => {
+  const original = globalThis.fetch;
+  const calls=[];
+  globalThis.fetch=async(input)=> { const url=new URL(input); calls.push(url); if(url.pathname==='/model-policy') return Response.json({allowPersonalModels:false}); throw new Error('Personal request reached worker'); };
+  try {
+    for(const path of [['auth','providers'],['auth','login','openai'],['auth','api-key','openai'],['models-config'],['models-config','discover'],['models-config','test']]) {
+      assert.equal((await GET(request(`/api/${path.join('/')}`),context(path))).status,403);
+    }
+    assert.ok(calls.every(url=>url.pathname==='/model-policy'));
+  } finally { globalThis.fetch=original; }
+});

@@ -1,3 +1,4 @@
+import { corporateModelAllowed } from "./corporate-model-policy";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { invalidateModelsCache } from "./models-cache";
 
@@ -40,7 +41,7 @@ export async function rememberProviderModels(runtime: ModelRuntime): Promise<voi
  */
 export function deferredProviderModels(runtime: ModelRuntime): RuntimeModel[] {
   const registered = new Set(runtime.getModels().map((model) => model.provider));
-  return [...catalog()].flatMap(([provider, models]) => (registered.has(provider) ? [] : models));
+  return [...catalog()].filter(([provider]) => corporateModelAllowed(provider)).flatMap(([provider, models]) => (registered.has(provider) ? [] : models));
 }
 
 /** The runtime as a model listing should see it: its own available models plus deferred ones. */

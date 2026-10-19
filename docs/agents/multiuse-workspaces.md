@@ -56,3 +56,7 @@ Keep the worker stopped. The manager-owned pending JSON records `backup`, `previ
 - `node --test multiuse-manager/*.test.mjs`: selective deletion, modified defaults, nested personal files, rename/type transitions, conflicts, rollback, links, invalid/pending manifests, legacy initialization, empty templates, per-user isolation and lifecycle serialization.
 - `node --experimental-strip-types --test app/api/multi/admin/admin-route.test.mjs lib/multiuse-admin-users.test.mjs`: live authorization, wrong host/origin, removed employee, manager conflicts, metadata validation.
 - Build only in an isolated worktree. Browser checks should intercept/mock corporate API in a separate browser context; never reset a real employee for a smoke test.
+
+## Corporate model snapshots
+
+Workers additionally receive `/data/pi-web/control/model-snapshots/<employee UUID>` as a read-only directory bind at `/run/pi-web-models`, with `PI_WEB_MODEL_SNAPSHOT` pointing to `snapshot.json`. Ensure publishes the current snapshot before readiness. Existing containers missing this mount are replaced through the image-upgrade rollback path even if their image ID matches; the same agent/workspace directories remain attached. No template reset is involved. Manager now also joins the Compose default network for provider HTTPS egress; privileged routes still require the manager secret, and worker gateway routes require distinct per-user HMAC tokens. See models.md for policy boundaries and operational limitations.

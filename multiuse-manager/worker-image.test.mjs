@@ -109,3 +109,16 @@ test("a cleanup error does not undo a ready replacement", async (t) => {
   assert.equal(f.containers.get(f.name).State.Running, true);
   assert.equal(f.containers.size, 2, "stopped backup is retained for later cleanup");
 });
+
+test("same image can be replaced to install the readonly corporate model mount", async () => {
+  const f = fixture();
+  const result = await replaceWorkerImage({...f.options,imageId:f.oldId,force:true});
+  assert.equal(result.Image,f.oldId);
+  assert.notEqual(result,f.original);
+  assert.ok(f.calls.some(call=>call.startsWith('create ')));
+  assert.doesNotThrow(() => assertWorkerMounts({Mounts:[
+    {Type:'bind',Source:'/data/pi-web/users/u/agent',Destination:'/home/pi/.pi',RW:true},
+    {Type:'bind',Source:'/data/pi-web/users/u/workspace',Destination:'/workspace',RW:true},
+    {Type:'bind',Source:'/data/pi-web/control/model-snapshots/u',Destination:'/run/pi-web-models',RW:false},
+  ]},'/data/pi-web/users/u'));
+});

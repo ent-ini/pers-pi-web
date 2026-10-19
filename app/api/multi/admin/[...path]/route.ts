@@ -11,6 +11,24 @@ function isAdmin(role: string): boolean {
   return role === "admin" || role === "tech";
 }
 
+class ModelBodyLimitError extends Error {}
+async function boundedModelBody(request: NextRequest): Promise<string> {
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 1_048_576) throw new ModelBodyLimitError();
+      chunks.push(value);
+    }
+    return Buffer.concat(chunks).toString("utf8");
+  } finally { reader.releaseLock(); }
+}
+
 async function forward(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   if (!isApiRequestAllowed(request)) return NextResponse.json({ error: "Untrusted API request" }, { status: 403 });
   const adminHost = process.env.PI_WEB_ADMIN_HOST?.trim().toLowerCase();
@@ -37,11 +55,12 @@ async function forward(request: NextRequest, context: { params: Promise<{ path: 
     const response = await workerManagerRequest(managerPath, {
       method: request.method,
       signal: AbortSignal.timeout(isReset ? 120_000 : 15_000),
-      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.text(),
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : (path[0]?.startsWith("model") ? await boundedModelBody(request) : await request.text()),
       headers: request.headers.get("content-type") ? { "content-type": request.headers.get("content-type")! } : undefined,
     });
     return new NextResponse(response.body, { status: response.status, headers: { "content-type": response.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
   } catch (error) {
+    if (error instanceof ModelBodyLimitError) return NextResponse.json({error:"Request too large"},{status:413});
     if (error instanceof AdminUsersError) return NextResponse.json({ error: error.status === 503 ? "BPM временно недоступен" : "Права администратора в BPM больше не действуют" }, { status: error.status });
     console.error("[multiuse-admin] manager request failed", error);
     return NextResponse.json({ error: "Административный сервис временно недоступен." }, { status: 503 });

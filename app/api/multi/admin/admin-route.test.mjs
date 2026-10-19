@@ -79,3 +79,19 @@ test("manager conflict remains a 409; template reads also recheck live admin rig
   assert.equal(result.status, 403);
   assert.equal(calls.length, 1);
 });
+
+test("all corporate model operations retain live BPM and origin gates", async () => {
+  const paths = [["model-settings"], ["models-config"], ["models-config", "presets"], ["models-config", "catalog"], ["models-config", "discover"], ["models-config", "test"]];
+  for (const path of paths) {
+    const ctx = { params: Promise.resolve({ path }) };
+    let calls = mockFetch({ liveRole: "employee" });
+    assert.equal((await GET(request({ method: "GET" }), ctx)).status, 403);
+    assert.ok(calls.every(call => call.url.hostname !== "manager.test"));
+    calls = mockFetch();
+    assert.equal((await GET(request({ method: "GET", origin: "https://evil.example.test" }), ctx)).status, 403);
+    assert.equal(calls.length, 0);
+    calls = mockFetch();
+    assert.equal((await GET(request({ method: "GET" }), ctx)).status, 200);
+    assert.equal(calls.at(-1).url.pathname, `/admin/${path.join("/")}`);
+  }
+});
