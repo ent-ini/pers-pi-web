@@ -1,4 +1,4 @@
-import { corporateSnapshot } from "./corporate-model-policy";
+import { corporateSnapshot } from "./corporate-model-policy.ts";
 export interface ModelsData {
   models: Record<string, string>;
   modelList: { id: string; name: string; provider: string; input?: string[] }[];

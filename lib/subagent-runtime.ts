@@ -1,4 +1,4 @@
-import "@/lib/corporate-model-runtime";
+import "./corporate-model-runtime";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   createAgentSessionFromServices,

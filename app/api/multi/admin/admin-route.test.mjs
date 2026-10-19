@@ -91,7 +91,12 @@ test("all corporate model operations retain live BPM and origin gates", async ()
     assert.equal((await GET(request({ method: "GET", origin: "https://evil.example.test" }), ctx)).status, 403);
     assert.equal(calls.length, 0);
     calls = mockFetch();
-    assert.equal((await GET(request({ method: "GET" }), ctx)).status, 200);
-    assert.equal(calls.at(-1).url.pathname, `/admin/${path.join("/")}`);
+    const response = await GET(request({ method: "GET" }), ctx);
+    assert.equal(response.status, 200);
+    if (path[1] === "presets") {
+      assert.ok((await response.json()).presets.some((preset) => preset.id === "minimax"));
+      assert.equal(calls.length, 1, "SDK catalogue checks BPM but never reads manager/personal auth");
+      assert.equal(calls[0].url.pathname, "/api/integrations/pi-web/me");
+    } else assert.equal(calls.at(-1).url.pathname, `/admin/${path.join("/")}`);
   }
 });

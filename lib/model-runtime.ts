@@ -1,4 +1,4 @@
-import "@/lib/corporate-model-runtime";
+import "./corporate-model-runtime";
 import {
   createAgentSessionServices,
   getAgentDir,

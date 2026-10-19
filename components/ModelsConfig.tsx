@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, useEffect, useCallback, useId, useRef } from "react";
-import { modelsConfigApiPath } from "./models-config-api";
+import { corporateModelDraftError, modelsConfigApiPath } from "./models-config-api";
 import { PersonalModelsPolicy } from "./PersonalModelsPolicy";
 import { openStackedDialog } from "@/lib/stacked-dialog";
 import { useI18n } from "@/hooks/useI18n";
@@ -2099,6 +2099,8 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
       }
       draft = renamed;
     }
+    const draftError = corporate ? corporateModelDraftError(draft.providers) : null;
+    if (draftError) { setSaveError(draftError); setSaving(false); return; }
     try {
       const res = await request("/api/models-config", {
         method: "PUT",

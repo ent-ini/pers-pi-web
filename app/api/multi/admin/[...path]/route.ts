@@ -4,6 +4,7 @@ import { getMultiuseConfig } from "@/lib/multiuse-config";
 import { workerManagerRequest } from "@/lib/worker-manager";
 import { AdminUsersError, assertBpmAdmin, listBpmEmployees } from "@/lib/multiuse-admin-users";
 import { isApiRequestAllowed } from "@/lib/request-security";
+import { corporateModelPresets } from "@/lib/corporate-model-presets";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,11 @@ async function forward(request: NextRequest, context: { params: Promise<{ path: 
       if (!employees.some((employee) => employee.id === path[1].toLowerCase())) return NextResponse.json({ error: "Сотрудник не найден в BPM" }, { status: 404 });
     } else {
       await assertBpmAdmin(session.accessToken, config);
+    }
+    if (request.method === "GET" && path.length === 2 && path[0] === "models-config" && path[1] === "presets") {
+      // Static, credential-free SDK catalogue. Preserve the exact same live
+      // admin/origin checks without giving the manager a second SDK install.
+      return NextResponse.json({ presets: corporateModelPresets() }, { headers: { "cache-control": "no-store" } });
     }
     const response = await workerManagerRequest(managerPath, {
       method: request.method,
