@@ -85,9 +85,6 @@ type AutoNameStatus =
 
 const TOP_BAR_ICON_BUTTON_SIZE = 36;
 const AGENT_PANEL_WIDTH = 420;
-// The session popover sizes its columns to their content, so a full-toolbar
-// band would be mostly empty next to a short limits column.
-const SESSION_PANEL_WIDTH = 680;
 // pi's built-in tools that never change a file; any other tool may (#1144).
 const READ_ONLY_TOOL_NAMES = new Set(PRESET_READ_ONLY);
 const TOOL_END_REFRESH_MS = 1000;
@@ -454,14 +451,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
           top: topBarRect.bottom,
           left: topBarRect.left,
           width: Math.min(AGENT_PANEL_WIDTH, topBarRect.width),
-        });
-        return;
-      }
-      if (activeTopPanel === "session") {
-        setTopPanelPos({
-          top: topBarRect.bottom,
-          left: topBarRect.left,
-          width: Math.min(SESSION_PANEL_WIDTH, topBarRect.width),
         });
         return;
       }
@@ -2097,9 +2086,6 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
                   borderBottom: "1px solid var(--border)",
                   boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
                   padding: "12px 16px",
-                  // Desktop columns are sized to their content, so the panel
-                  // hugs them instead of stretching across the toolbar.
-                  ...(isMobile ? null : { width: "fit-content", maxWidth: "100%" }),
                 }}>
                   {sessionStats ? (() => {
                     const limitsSection = sessionProvider && isProviderUsageId(sessionProvider)
@@ -2162,16 +2148,16 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
                     return (
                       <div style={{
                         display: "grid",
-                        // Content-sized columns packed to the left: the limits
-                        // rows are short, so stretching them left a wide empty
-                        // gutter before the messages and tokens sections.
+                        // Full-width panel with balanced columns: the limits
+                        // column is capped so short limits rows cannot hog the
+                        // row and leave a wide gutter, and the remaining
+                        // sections split what is left evenly.
                         gridTemplateColumns: isMobile
                           ? "1fr"
                           : limitsSection
-                            ? "minmax(220px, max-content) auto auto"
-                            : "auto auto",
-                        justifyContent: isMobile ? "stretch" : "start",
-                        columnGap: isMobile ? 12 : 20,
+                            ? "minmax(240px, 360px) 1fr 1fr"
+                            : "1fr 1fr",
+                        columnGap: isMobile ? 12 : 28,
                         rowGap: 16,
                         alignItems: "start",
                         fontSize: 12,
