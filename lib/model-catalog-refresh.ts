@@ -1,3 +1,4 @@
+import "@/lib/corporate-model-runtime";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createModelRuntimeWithExtensions } from "@/lib/model-runtime";
 import { invalidateModelsCache } from "@/lib/models-cache";

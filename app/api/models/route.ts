@@ -1,3 +1,4 @@
+import "@/lib/corporate-model-runtime";
 import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir, type SettingsManager } from "@earendil-works/pi-coding-agent";

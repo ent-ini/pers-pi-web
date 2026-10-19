@@ -1,3 +1,4 @@
+import { personalModelPath, personalModelsAllowed } from "@/lib/corporate-model-policy";
 import { NextResponse, type NextRequest } from "next/server";
 import {
   getAuthRetryAfterMs,
@@ -29,6 +30,9 @@ function tooManyAttempts(retryAfterMs: number): NextResponse {
 }
 
 export function proxy(request: NextRequest) {
+  try {
+    if (personalModelPath(request.nextUrl.pathname) && !personalModelsAllowed()) return NextResponse.json({error:"Personal models disabled by corporate policy"},{status:403});
+  } catch { return NextResponse.json({error:"Corporate model policy unavailable"},{status:503}); }
   const isApiRequest = request.nextUrl.pathname === "/api"
     || request.nextUrl.pathname.startsWith("/api/");
   const isTrustedRequest = isApiRequest

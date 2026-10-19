@@ -22,8 +22,8 @@ services:
 
   worker-manager:
     build:
-      context: ./multiuse-manager
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: multiuse-manager/Dockerfile
     container_name: pi_web_worker_manager
     restart: unless-stopped
     env_file:
@@ -38,6 +38,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/pi-web:/data/pi-web
     networks:
+      - default
       - pi-web-internal
 
 networks:

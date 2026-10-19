@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 export function assertWorkerMounts(info, root) {
   const expected = new Map([["/home/pi/.pi", `${root}/agent`], ["/workspace", `${root}/workspace`]]);
-  const mounts = info.Mounts;
+  const mounts = info.Mounts?.filter(m => !(m.Type === "bind" && m.Destination === "/run/pi-web-models" && m.Source === `/data/pi-web/control/model-snapshots/${root.split("/").at(-1)}` && m.RW === false));
   if (!Array.isArray(mounts) || mounts.length !== expected.size) throw new Error("Worker upgrade refused: unexpected persistent mounts.");
   for (const mount of mounts) {
     if (mount.Type !== "bind" || mount.RW !== true || expected.get(mount.Destination) !== mount.Source) {
@@ -15,8 +15,8 @@ export function assertWorkerMounts(info, root) {
 
 /** Caller holds the same per-employee lock as ensure/reset. Only containers are
  * replaced; both persistent bind mounts are supplied unchanged by create(). */
-export async function replaceWorkerImage({ name, info, imageId, docker, create, start, wait }) {
-  if (info.Image === imageId) return info;
+export async function replaceWorkerImage({ name, info, imageId, force = false, docker, create, start, wait }) {
+  if (!force && info.Image === imageId) return info;
   const backup = `${name}_previous_${randomUUID().slice(0, 8)}`;
   const wasRunning = Boolean(info.State.Running);
   let renamed = false;

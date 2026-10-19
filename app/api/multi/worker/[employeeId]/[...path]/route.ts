@@ -1,7 +1,8 @@
+import { personalModelPath } from "@/lib/corporate-model-policy";
 import { NextRequest, NextResponse } from "next/server";
 import { readMultiuseSessionToken, PI_WEB_MULTI_SESSION_COOKIE } from "@/lib/multiuse-auth";
 import { getMultiuseConfig } from "@/lib/multiuse-config";
-import { ensureWorker } from "@/lib/worker-manager";
+import { ensureWorker, workerManagerRequest } from "@/lib/worker-manager";
 import { isApiRequestAllowed } from "@/lib/request-security";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +60,12 @@ async function forward(request: NextRequest, context: { params: Promise<{ employ
   }
 
   try {
+    if (personalModelPath(`/api/${path.join("/")}`)) {
+      const policyResponse=await workerManagerRequest("/model-policy");
+      if(!policyResponse.ok) throw new Error("Policy unavailable");
+      const policy=await policyResponse.json();
+      if(policy.allowPersonalModels !== true) return NextResponse.json({error:"Personal models disabled by corporate policy"},{status:403});
+    }
     const workerUrl = await ensureWorker(session.identity);
     const target = new URL(`/api/${path.map(encodeURIComponent).join("/")}`, workerUrl);
     // File operations, pinned files and other worker APIs depend on the query.

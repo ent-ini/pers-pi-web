@@ -1,3 +1,6 @@
+import { createCorporateModels } from './corporate-models.mjs';
+import { gateway } from './model-gateway.mjs';
+import { modelAdmin } from './model-admin.mjs';
 import { createServer } from "node:http";
 import { chmod, chown, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { request as dockerRequest } from "node:http";
@@ -13,6 +16,7 @@ const templateRoot = "/data/pi-web/templates/default";
 const registryPath = "/data/pi-web/control/users.json";
 const image = process.env.PI_WEB_WORKER_IMAGE || "pi-web-multi-pi-web:latest";
 const secret = process.env.PI_WEB_WORKER_MANAGER_SECRET || "";
+const corporateModels = createCorporateModels({root:"/data/pi-web/control",secret});
 const network = process.env.PI_WEB_WORKER_NETWORK || "pi-web-internal";
 const egressNetwork = process.env.PI_WEB_WORKER_EGRESS_NETWORK || "pi-web-egress";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -100,8 +104,9 @@ async function start(name) {
 async function createWorker(name, root, imageId) {
   await docker("POST", `/containers/create?name=${name}`, {
     Image: imageId, Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
-    Env: ["HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", "PI_WEB_LOCKED_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
+    Env: ["PI_WEB_MODEL_SNAPSHOT=/run/pi-web-models/snapshot.json", "HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", "PI_WEB_LOCKED_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
     HostConfig: { NetworkMode: network, ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], PidsLimit: 256, Memory: 2147483648, NanoCpus: 2000000000, Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" }, Mounts: [
+      { Type: "bind", Source: `/data/pi-web/control/model-snapshots/${root.split("/").at(-1)}`, Target: "/run/pi-web-models", ReadOnly: true },
       { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
       { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
     ] },
@@ -110,6 +115,7 @@ async function createWorker(name, root, imageId) {
 async function ensureWorker(identity) {
   const employeeId = safeEmployeeId(identity?.id);
   await workspaceTemplates.assertHealthy(employeeId);
+  await corporateModels.publish(employeeId);
   const name = containerName(employeeId);
   // An internal-only network also blocks DNS/provider HTTPS. Keep control-plane
   // traffic private, but attach workers to a distinct outbound-only NAT bridge.
@@ -122,12 +128,12 @@ async function ensureWorker(identity) {
   if (typeof desired?.Id !== "string" || !/^sha256:[a-f0-9]{64}$/.test(desired.Id)) throw new Error("Invalid worker image identifier.");
   let info;
   try { info = await docker("GET", `/containers/${name}/json`); } catch (error) { if (!String(error).includes(" 404 ")) throw error; }
-  if (info && info.Image !== desired.Id) {
+  if (info && (info.Image !== desired.Id || !info.Mounts?.some(m => m.Destination === "/run/pi-web-models" && m.RW === false))) {
     // Never silently switch to empty/different data after a storage migration.
     assertWorkerMounts(info, `${dataRoot}/${employeeId}`);
     const root = await prepareDirectories(employeeId);
     info = await replaceWorkerImage({
-      name, info, imageId: desired.Id, docker, start: startWithEgress, wait: waitForWorker,
+      name, info, imageId: desired.Id, force: true, docker, start: startWithEgress, wait: waitForWorker,
       create: (imageId) => createWorker(name, root, imageId),
     });
   }
@@ -157,9 +163,14 @@ function send(response, status, payload) { response.writeHead(status, { "Content
 async function body(request) { let raw = ""; for await (const part of request) raw += part; return raw ? JSON.parse(raw) : {}; }
 
 createServer(async (request, response) => {
-  if (request.headers.authorization !== `Bearer ${secret}`) return send(response, 401, { error: "Unauthorized" });
   const url = new URL(request.url, "http://manager");
+  if (url.pathname.startsWith("/gateway/")) return gateway(request,response,url,corporateModels);
+  if (request.headers.authorization !== `Bearer ${secret}`) return send(response, 401, { error: "Unauthorized" });
   try {
+    if (url.pathname.startsWith("/admin/model") || url.pathname === "/model-policy") {
+      const result = await modelAdmin(request,url,corporateModels);
+      return send(response,result === undefined ? 404 : 200,result ?? {error:"Not found"});
+    }
     if (request.method === "POST" && url.pathname === "/workers/ensure") {
       const identity = (await body(request)).identity;
       const id = safeEmployeeId(identity?.id);
@@ -193,5 +204,5 @@ createServer(async (request, response) => {
       return send(response, 200, { ok: true, ...result });
     }
     return send(response, 404, { error: "Not found" });
-  } catch (error) { console.error("[worker-manager] request failed", error); return send(response, error.status || 400, { error: error instanceof Error ? error.message : "Request failed" }); }
+  } catch (error) { if (url.pathname.startsWith("/admin/model") || url.pathname === "/model-policy") return send(response,error.status || 400,{error:"Corporate model request failed"}); console.error("[worker-manager] request failed", error); return send(response, error.status || 400, { error: error instanceof Error ? error.message : "Request failed" }); }
 }).listen(3030, "0.0.0.0", () => console.log("worker manager listening on :3030"));
