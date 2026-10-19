@@ -243,6 +243,7 @@ export const zhCNLocale: LocalePlugin = {
     "session.load": "发送消息或运行 /session 以加载会话信息",
     "session.infoSection": "会话信息",
     "session.projectSection": "项目信息",
+    "session.limits": "限额",
     "session.messages": "消息",
     "session.tokens": "Token",
     "session.totalActive": "活跃时长",
