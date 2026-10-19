@@ -1,3 +1,4 @@
+import { corporateSnapshot } from "./corporate-model-policy.ts";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
   resolveModelScopeWithDiagnostics,
@@ -117,16 +118,22 @@ export async function resolveVisibleModels(
   patterns: string[] | undefined,
 ): Promise<ModelScopeResult> {
   const cleaned = (patterns ?? []).map((pattern) => pattern.trim()).filter(Boolean);
+  const available = await modelRuntime.getAvailable();
+  const finish = (scope: ModelScopeResult): ModelScopeResult => {
+    const reference = corporateSnapshot()?.defaultModel;
+    if (!reference || scope.visible.some((model) => matchesModel(model, reference))) return scope;
+    const model = available.find((candidate) => matchesModel(candidate, reference));
+    if (!model) throw new Error("Модель компании по умолчанию недоступна");
+    return { ...scope, visible: [model, ...scope.visible], scopedModels: scope.scopedModels.length ? [{ model }, ...scope.scopedModels] : [] };
+  };
   if (cleaned.length === 0) {
-    return {
-      visible: await modelRuntime.getAvailable(),
+    return finish({
+      visible: available,
       scopedModels: [],
       thinkingLevelPins: {},
       warnings: [],
-    };
+    });
   }
-
-  const available = await modelRuntime.getAvailable();
   assertNoAmbiguousExactPatterns(cleaned, available);
   const snapshotRuntime = {
     getAvailable: async () => available,
@@ -145,12 +152,12 @@ export async function resolveVisibleModels(
     ))
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
-    return {
+    return finish({
       visible: available,
       scopedModels: [],
       thinkingLevelPins: {},
       warnings,
-    };
+    });
   }
 
   // `anthropic/*:high` pins a thinking level on every model the glob matched.
@@ -162,12 +169,12 @@ export async function resolveVisibleModels(
       thinkingLevelPins[`${scoped.model.provider}/${scoped.model.id}`] = scoped.thinkingLevel;
     }
   }
-  return {
+  return finish({
     visible: scopedModels.map((scoped) => scoped.model),
     scopedModels,
     thinkingLevelPins,
     warnings,
-  };
+  });
 }
 
 /**
@@ -197,7 +204,7 @@ export function selectInitialModelScope(
   options: InitialModelScopeOptions = {},
 ): InitialModelScopeResult {
   const requestedRef = options.requestedModel;
-  const defaultRef = options.defaultModel;
+  const defaultRef = corporateSnapshot()?.defaultModel ?? options.defaultModel;
   const requested = requestedRef
     ? scope.visible.find((model) => matchesModel(model, requestedRef))
     : undefined;

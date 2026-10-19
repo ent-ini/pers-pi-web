@@ -21,10 +21,9 @@ const FORK_SUFFIX_RE = / · [0-9a-f]{4}$/;
  * as the /skill:name command, else its id. `name` and `firstMessage` are the
  * session list's own (scanSessionFileInfo()).
  */
-export function sessionDisplayTitle(session: { id: string; name?: string; firstMessage: string }): string {
+export function sessionDisplayTitle(session: { id: string; name?: string; firstMessage: string; awaitingName?: boolean }): string {
   return session.name
-    || (skillExpansionToCommand(session.firstMessage) ?? session.firstMessage)
-    || session.id.slice(0, 12);
+    || (session.awaitingName ? "Новая сессия" : (skillExpansionToCommand(session.firstMessage) ?? session.firstMessage) || session.id.slice(0, 12));
 }
 
 /** `text` cut to at most `max` code points, the last an ellipsis; a surrogate pair is never split. */

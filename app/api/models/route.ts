@@ -118,8 +118,8 @@ export async function GET(req: Request) {
   }
 
   try {
-    return Response.json(await loadModelsWithCache(cwd, () => loadModels(cwd)));
+    return Response.json({ ...await loadModelsWithCache(cwd, () => loadModels(cwd)), ...(process.env.PI_WEB_MODEL_SNAPSHOT ? { corporateMode: true } : {}) });
   } catch {
-    return Response.json(withSafeModelLoadFailure(EMPTY_MODELS));
+    return Response.json({ ...withSafeModelLoadFailure(EMPTY_MODELS), ...(process.env.PI_WEB_MODEL_SNAPSHOT ? { corporateMode: true } : {}) });
   }
 }

@@ -322,6 +322,7 @@ export interface AttachedImage {
 type SelectedModel = { provider: string; modelId: string };
 type ModelEntry = { id: string; name: string; provider: string };
 type ModelsResponse = {
+  corporateMode?: boolean;
   models: Record<string, string>;
   modelList?: ModelEntry[];
   defaultModel?: SelectedModel | null;
@@ -364,6 +365,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
   const [pendingBash, setPendingBash] = useState<{ command: string; excludeFromContext: boolean } | null>(null);
   const [modelNames, setModelNames] = useState<Record<string, string>>({});
   const [modelList, setModelList] = useState<ModelEntry[]>([]);
+  const [corporateMode, setCorporateMode] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [modelScopeWarnings, setModelScopeWarnings] = useState<string[]>([]);
   const [modelThinkingLevels, setModelThinkingLevels] = useState<Record<string, string[]>>({});
@@ -2052,6 +2054,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
       throw e;
     }
+    setCorporateMode(d.corporateMode === true);
     setModelNames(d.models);
     setModelError(d.modelError ?? null);
     setModelScopeWarnings(d.modelScopeWarnings ?? []);
@@ -2092,6 +2095,23 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
       }
     }
   }, [isNew, newSessionCwd, session?.cwd]);
+
+  // Corporate catalogue changes also reach already-open employee tabs. Never
+  // poll personal installations, hidden tabs, or overlap our own refreshes.
+  useEffect(() => {
+    if (!corporateMode) return;
+    const controller = new AbortController();
+    let busy = false;
+    const refresh = () => {
+      if (document.visibilityState !== "visible" || busy) return;
+      busy = true;
+      void loadModels(controller.signal).catch(() => {}).finally(() => { busy = false; });
+    };
+    const timer = setInterval(refresh, 30_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { controller.abort(); clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [corporateMode, loadModels]);
 
   // Picking a model or reasoning level is session-scoped, as in the TUI. The
   // selectors' star is the explicit Ctrl+S equivalent: it saves the global

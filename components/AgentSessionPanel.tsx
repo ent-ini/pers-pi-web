@@ -1,5 +1,7 @@
 "use client";
 
+import { sessionDisplayTitle } from "@/lib/session-fork-name";
+
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
 import type { SessionInfo, SubagentSessionStatus } from "@/lib/types";
@@ -13,7 +15,7 @@ interface Props {
 }
 
 function sessionTitle(session: SessionInfo): string {
-  return session.name || session.firstMessage || session.id.slice(0, 12);
+  return session.awaitingName ? sessionDisplayTitle(session) : session.name || session.firstMessage || session.id.slice(0, 12);
 }
 
 function formatRelativeTime(value: string, locale: string): string {

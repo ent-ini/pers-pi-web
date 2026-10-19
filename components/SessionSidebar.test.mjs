@@ -921,7 +921,7 @@ test("search results of archived families are tagged, not hidden", () => {
   assert.match(searchSource, /archivedSessionIds\?: ReadonlySet<string>;/);
   assert.match(
     searchSource,
-    /\{session\.name \|\| session\.firstMessage\}<\/span>\s*\{archivedSessionIds\?\.has\(session\.id\) && \(\s*<span className="[^"]*text-\[10px\][^"]*">\{t\("sidebar\.archived"\)\}<\/span>/,
+    /<\/span>\s*\{archivedSessionIds\?\.has\(session\.id\) && \(\s*<span className="[^"]*text-\[10px\][^"]*">\{t\("sidebar\.archived"\)\}<\/span>/,
   );
   // The whole family counts: a subagent hit of an archived session is tagged too.
   assert.match(source, /for \(const id of familyIds\(family\)\) ids\.add\(id\);/);

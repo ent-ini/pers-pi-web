@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
+export type CorporateModelRef = { provider: string; modelId: string };
 type Snapshot = {
+  defaultModel?: CorporateModelRef | null;
+  namingModel?: CorporateModelRef | null;
   policyUrl?: string;
   gatewayToken?: string;
   version: 1;
@@ -39,6 +42,9 @@ export function corporateSnapshot(): Snapshot | undefined {
         typeof p.baseUrl !== "string"
       )
         throw new Error();
+    for (const role of [s.defaultModel, s.namingModel]) {
+      if (role != null && (typeof role.provider !== "string" || typeof role.modelId !== "string" || !s.providers[role.provider]?.models.some((model: { id: string }) => model.id === role.modelId))) throw new Error();
+    }
     return s;
   } catch {
     throw new Error("Corporate model policy unavailable");

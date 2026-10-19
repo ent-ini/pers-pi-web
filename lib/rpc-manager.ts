@@ -1,4 +1,6 @@
 import "./corporate-model-runtime";
+import { corporateSnapshot } from "./corporate-model-policy";
+import { nameCorporateSession, type CorporateNamingTarget } from "./corporate-auto-name";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { createAgentSessionFromServices, createAgentSessionServices, getAgentDir, initTheme, SessionManager, SettingsManager, Theme, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager as TuiKeybindingsManager, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
@@ -465,11 +467,21 @@ export class AgentSessionWrapper {
     }
   }
 
+  scheduleCorporateNaming(): void {
+    if (!process.env.PI_WEB_MODEL_SNAPSHOT || this.suppressCompletionNotifications || !this.isAlive()) return;
+    void nameCorporateSession({
+      inner: this.inner as unknown as CorporateNamingTarget["inner"],
+      isAlive: () => this.isAlive(), isRunning: () => this.isRunning(),
+      onNamed: invalidateSessionListCache,
+    }).catch(() => console.warn("[pi-web] corporate session naming failed"));
+  }
+
   private notifyAgentRunCompleteIfIdle(): void {
     if (!this.agentRunNeedsCompletion || this.isRunning()) return;
     this.agentRunNeedsCompletion = false;
     // A stopped run did not finish a task, as pi's own status reporting has it: nothing to announce.
     if (this.suppressCompletionNotifications || this.lastRunAborted) return;
+    this.scheduleCorporateNaming();
     try {
       this.onAgentRunComplete?.(this.sessionId);
     } catch (error) {
@@ -2265,6 +2277,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       id: header?.id ?? session.sessionId,
       cwd: header?.cwd ?? session.cwd,
       name: manager.getSessionName(),
+      ...(process.env.PI_WEB_MODEL_SNAPSHOT ? { awaitingName: !manager.getSessionName() } : {}),
       created,
       modified: new Date(lastActivityMs).toISOString(),
       messageCount: messages.length,
@@ -2541,7 +2554,7 @@ export async function startRpcSession(
       });
     const startupModel = restoredModel && services.modelRuntime.hasConfiguredAuth(restoredModel.provider)
       ? restoredModel
-      : initial?.model;
+      : initial?.model ?? (corporateSnapshot()?.defaultModel ? selectInitialModelScope(scope).model : undefined);
     const deferredModel = hasExistingMessages
       ? savedModel && !restoredModel
         ? findDeferredModel(services.modelRuntime, savedModel.provider, savedModel.modelId)
@@ -2597,6 +2610,7 @@ export async function startRpcSession(
     });
     const realSessionId = inner.sessionId as string;
     registerRpcWrapper(wrapper);
+    if (!subagentResources && process.env.PI_WEB_MODEL_SNAPSHOT) void wrapper.waitUntilReady().then(() => wrapper.scheduleCorporateNaming()).catch(() => {});
 
     if (!chatOnly) {
       if (deferredModel) {

@@ -1,4 +1,5 @@
 import "@/lib/corporate-model-runtime";
+import { corporateSnapshot } from "@/lib/corporate-model-policy";
 import { stat } from "fs/promises";
 import { resolve } from "path";
 import { createAgentSessionServices, getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -74,6 +75,7 @@ export async function PUT(req: Request) {
   }
 
   try {
+    if (edit.model && corporateSnapshot()?.defaultModel) return Response.json({ error: "Модель по умолчанию задаёт администратор компании. Для текущего чата можно выбрать другую модель.", reason: "company-managed" }, { status: 403 });
     const agentDir = getAgentDir();
     const trustReloadOptions = projectTrustReloadOptions(cwd, agentDir);
     const services = await createAgentSessionServices({

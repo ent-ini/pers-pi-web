@@ -204,5 +204,5 @@ createServer(async (request, response) => {
       return send(response, 200, { ok: true, ...result });
     }
     return send(response, 404, { error: "Not found" });
-  } catch (error) { if (url.pathname.startsWith("/admin/model") || url.pathname === "/model-policy") return send(response,error.status || 400,{error:"Corporate model request failed"}); console.error("[worker-manager] request failed", error); return send(response, error.status || 400, { error: error instanceof Error ? error.message : "Request failed" }); }
+  } catch (error) { if (url.pathname.startsWith("/admin/model") || url.pathname === "/model-policy") return send(response,error.status || 400,{error:error.publicMessage || "Corporate model request failed"}); console.error("[worker-manager] request failed", error); return send(response, error.status || 400, { error: error instanceof Error ? error.message : "Request failed" }); }
 }).listen(3030, "0.0.0.0", () => console.log("worker manager listening on :3030"));

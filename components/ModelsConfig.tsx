@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useMemo, useState, useEffect, useCallback, useId, useRef } from "react";
-import { corporateModelDraftError, modelsConfigApiPath } from "./models-config-api";
+import { corporateModelDraftError, modelsConfigApiPath, retargetCorporateModelRoles } from "./models-config-api";
 import { PersonalModelsPolicy } from "./PersonalModelsPolicy";
 import { openStackedDialog } from "@/lib/stacked-dialog";
 import { useI18n } from "@/hooks/useI18n";
@@ -93,6 +93,7 @@ type OAuthLoginState =
 
 interface ModelEntry {
   id: string;
+  enabled?: boolean;
   name?: string;
   api?: string;
   reasoning?: boolean;
@@ -119,6 +120,29 @@ interface ProviderEntry {
 interface ModelsJson {
   providers?: Record<string, ProviderEntry>;
   revision?: string;
+  defaultModel?: { provider: string; modelId: string } | null;
+  namingModel?: { provider: string; modelId: string } | null;
+}
+
+function CorporateModelRoles({ draft, onChange }: { draft: ModelsJson; onChange: (next: ModelsJson) => void }) {
+  const options = Object.entries(draft.providers ?? {}).flatMap(([provider, entry]) => (entry.models ?? []).filter((model) => model.id).map((model) => ({
+    value: JSON.stringify({ provider, modelId: model.id }),
+    label: `${model.name || model.id} · ${provider}`,
+    disabled: entry.enabled === false || model.enabled === false,
+  })));
+  return <section aria-label="Назначение моделей" style={{ padding: 16, borderBottom: "1px solid var(--border)", display: "grid", gap: 10 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
+      {([ ["defaultModel", "Модель по умолчанию", "Автоматический выбор"], ["namingModel", "Модель для названий", "Автоназывание выключено"] ] as const).map(([key, label, empty]) => {
+        const value = draft[key] ? JSON.stringify({ provider: draft[key].provider, modelId: draft[key].modelId }) : "";
+        return <Field key={key} label={label}><select aria-label={label} value={value} style={{ ...inputStyle, width: "100%", minWidth: 0 }} onChange={(event) => onChange({ ...draft, [key]: event.target.value ? JSON.parse(event.target.value) : null })}>
+          <option value="">{empty}</option>
+          {value && !options.some((option) => option.value === value) && <option value={value} disabled>Модель удалена — измените назначение</option>}
+          {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}{option.disabled ? " (выключена)" : ""}</option>)}
+        </select></Field>;
+      })}
+    </div>
+    <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)" }}>Модель по умолчанию — для новых чатов всех сотрудников. Название обновляется после 2, 6 и 16 сообщений; ручные названия сохраняются. Все изменения применяются кнопкой «Сохранить».</p>
+  </section>;
 }
 
 interface CorporatePreset { id: string; displayName: string; provider: ProviderEntry }
@@ -859,7 +883,7 @@ function ModelDetail({
   onChange: (m: ModelEntry) => void;
   onDelete: () => void;
 }) {
-  const { request } = useContext(ModelsConfigEnvironment);
+  const { corporate, request } = useContext(ModelsConfigEnvironment);
   const [testState, setTestState] = useState<ModelTestState>({ phase: "idle" });
   const { t } = useI18n();
   const [catalogState, setCatalogState] = useState<ModelCatalogState>({ phase: "idle" });
@@ -1112,6 +1136,13 @@ function ModelDetail({
         </ConfigDetailActions>
       </ConfigDetailHeader>
 
+      {corporate && <div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <span style={{ fontSize: 12 }}>Доступна сотрудникам</span>
+          <ConfigSwitch checked={model.enabled !== false} label="Модель доступна сотрудникам" onChange={(enabled) => set("enabled", enabled)} />
+        </div>
+        <p style={{ margin: "6px 0 0", fontSize: 11, color: "var(--text-muted)" }}>{provider.enabled === false ? "Провайдер выключен: все его модели скрыты." : "Выключенная модель исчезнет из выбора сотрудников и не сможет использоваться в чатах."}</p>
+      </div>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <Field label="ID *"><TextInput value={model.id} onChange={(v) => set("id", v)} placeholder="model-id" mono /></Field>
         <Field label="Name"><TextInput value={model.name ?? ""} onChange={(v) => set("name", v || undefined)} placeholder="Display name" /></Field>
@@ -1995,7 +2026,8 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
       slots: savedModelIdsRef.current,
     }, oldName, newName);
     if (!next) return null;
-    setConfig(next);
+    const updated = retargetCorporateModelRoles(next, { provider: oldName }, { provider: newName });
+    setConfig(updated);
     setProviderNameDraft(null);
     setSelection((prev) => {
       if (!prev) return prev;
@@ -2003,7 +2035,7 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
       if (prev.type === "model" && prev.providerName === oldName) return { ...prev, providerName: newName };
       return prev;
     });
-    return next;
+    return updated;
   }, []);
 
   const renameProvider = useCallback((oldName: string, newName: string) => {
@@ -2065,8 +2097,9 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
     setConfig((prev) => {
       const provider = prev.providers?.[providerName] ?? {};
       const models = [...(provider.models ?? [])];
+      const renamed = models[index] ? retargetCorporateModelRoles(prev, { provider: providerName, modelId: models[index].id }, { provider: providerName, modelId: m.id }) : prev;
       models[index] = m;
-      return { ...prev, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
+      return { ...renamed, providers: { ...(prev.providers ?? {}), [providerName]: { ...provider, models } } };
     });
   }, []);
 
@@ -2099,7 +2132,7 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
       }
       draft = renamed;
     }
-    const draftError = corporate ? corporateModelDraftError(draft.providers) : null;
+    const draftError = corporate ? corporateModelDraftError(draft.providers, draft) : null;
     if (draftError) { setSaveError(draftError); setSaving(false); return; }
     try {
       const res = await request("/api/models-config", {
@@ -2197,7 +2230,8 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
         {!corporate && <EnabledModelsBanner controller={enabledModels} />}
 
         {/* A corporate save returns masked secrets; freeze its draft until that response lands. */}
-        <div inert={corporate && saving} style={{ display: "flex", flex: 1, minHeight: 0 }}>
+        <div inert={corporate && saving} style={{ display: "flex", flexDirection: corporate ? "column" : undefined, flex: 1, minHeight: 0 }}>
+        {corporate && !loading && <CorporateModelRoles draft={config} onChange={setConfig} />}
         <ConfigSplitView>
 
           {/* Left: tree */}
@@ -2279,6 +2313,7 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
                           <ConfigSidebarText className="is-grow" style={{ color: m.id ? "var(--text-muted)" : "var(--text-dim)" }}>
                              {m.id || t("i18n.newModel")}
                           </ConfigSidebarText>
+                          {corporate && (m.enabled === false || pData.enabled === false) && <span style={{ fontSize: 10, color: "var(--text-dim)" }}>скрыта</span>}
                           {m.reasoning && (
                             <span style={{ fontSize: 9, padding: "1px 4px", background: "rgba(99,102,241,0.12)", color: "rgba(99,102,241,0.8)", borderRadius: 3, flexShrink: 0 }}>T</span>
                           )}

@@ -37,6 +37,7 @@ const NO_USER_TEXT = "(no messages)";
 export async function readForkSourceTitle(sourcePath: string): Promise<string | null | undefined> {
   const scanned = await scanSessionFileInfo(sourcePath);
   if (!scanned) return undefined;
+  if (process.env.PI_WEB_MODEL_SNAPSHOT && !scanned.name) return null;
   if (!scanned.name && scanned.firstMessage === NO_USER_TEXT) return null;
   return sessionDisplayTitle(scanned).trim() || undefined;
 }

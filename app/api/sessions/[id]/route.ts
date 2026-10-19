@@ -186,9 +186,14 @@ export async function PATCH(
       return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
 
-    // PATCH writes via appendSessionInfo — open fresh, bypassing the cache.
-    const sm = openSessionManager(filePath, { mutable: true });
-    sm.appendSessionInfo(name.trim());
+    // Corporate naming and sidebar renames must share the live writer. A
+    // second manager would leave an in-flight namer unaware of this manual edit.
+    const live = process.env.PI_WEB_MODEL_SNAPSHOT ? getRpcSession(id) : undefined;
+    if (live?.isAlive()) live.inner.setSessionName(name.trim());
+    else {
+      const sm = openSessionManager(filePath, { mutable: true });
+      sm.appendSessionInfo(name.trim());
+    }
     invalidateSessionManagerCache(filePath);
     invalidateSessionListCache();
     return NextResponse.json({ ok: true });

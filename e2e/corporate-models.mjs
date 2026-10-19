@@ -61,7 +61,7 @@ try {
       }
       return json({ allowPersonalModels });
     }
-    if (path === "/api/multi/admin/models-config/presets") return json({ presets: [{ id: "fixture", displayName: "Тестовый провайдер", provider: { api: "openai-completions", baseUrl: "https://provider.example.invalid/v1", models: [{ id: "fixture-model", name: "Fixture model" }] } }] });
+    if (path === "/api/multi/admin/models-config/presets") return json({ presets: [{ id: "fixture", displayName: "Тестовый провайдер", provider: { api: "openai-completions", baseUrl: "https://provider.example.invalid/v1", models: [{ id: "fixture-model", name: "Fixture model" }, { id: "cheap-namer", name: "Называтель" }, { id: "hidden-preview", name: "Тестовая скрытая" }] } }] });
     if (path === "/api/multi/admin/models-config") {
       if (request.method() === "PUT") {
         const data = request.postDataJSON();
@@ -95,11 +95,34 @@ try {
   await page.getByRole("button", { name: /Тестовый провайдер/ }).click();
   const key = page.locator('input[aria-label="API Key"]');
   await key.fill("ephemeral-fixture-key-not-a-credential");
+  const defaultRef = { provider: "fixture", modelId: "fixture-model" };
+  const namingRef = { provider: "fixture", modelId: "cheap-namer" };
+  await page.getByRole("combobox", { name: "Модель по умолчанию", exact: true }).selectOption(JSON.stringify(defaultRef));
+  await page.getByRole("combobox", { name: "Модель для названий", exact: true }).selectOption(JSON.stringify(namingRef));
   await page.getByRole("button", { name: "Сохранить", exact: true }).click();
   await page.waitForFunction(() => document.querySelector('input[aria-label="API Key"]')?.placeholder.includes("Ключ сохранён"));
   assert.equal(await key.inputValue(), "", "saved credentials must not remain in the input");
   assert.equal(config.providers.fixture.models[0].id, "fixture-model");
   assert.equal(config.providers.fixture.apiKey, "retain:opaque-fixture");
+  assert.deepEqual(config.defaultModel, defaultRef);
+  assert.deepEqual(config.namingModel, namingRef);
+  // A disabled role cannot silently leave employees with an unusable default/namer.
+  await page.getByRole("button", { name: "cheap-namer", exact: true }).click();
+  await page.getByRole("switch", { name: "Модель доступна сотрудникам", exact: true }).click();
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page.getByText("Модель для названий недоступна.", { exact: false }).waitFor();
+  assert.notEqual(config.providers.fixture.models[1].enabled, false, "invalid draft was not persisted");
+  await page.getByRole("switch", { name: "Модель доступна сотрудникам", exact: true }).click();
+  await page.getByRole("button", { name: "hidden-preview", exact: true }).click();
+  await page.getByRole("switch", { name: "Модель доступна сотрудникам", exact: true }).click();
+  await page.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('button.config-button.is-success'));
+  assert.equal(config.providers.fixture.models[2].enabled, false);
+  await page.reload();
+  await page.getByRole("button", { name: "Модели", exact: true }).click();
+  assert.equal(await page.getByRole("combobox", { name: "Модель по умолчанию", exact: true }).inputValue(), JSON.stringify(defaultRef));
+  assert.equal(await page.getByRole("combobox", { name: "Модель для названий", exact: true }).inputValue(), JSON.stringify(namingRef));
+  await page.getByRole("button", { name: "fixture", exact: true }).click();
   await page.screenshot({ path: join(artifacts, "models-desktop.png"), fullPage: true });
   await page.getByRole("button", { name: /Импортировать модели/ }).click();
   await page.getByText("Новая тестовая модель", { exact: true }).waitFor();

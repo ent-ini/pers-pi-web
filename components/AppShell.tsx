@@ -151,6 +151,12 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
   const [sessionCatalog, setSessionCatalog] = useState<SessionInfo[]>([]);
   const handleSessionsChange = useCallback((sessions: SessionInfo[]) => {
     setSessionCatalog(sessions);
+    setSelectedSession((selected) => {
+      if (!selected) return selected;
+      const fresh = sessions.find((session) => session.id === selected.id);
+      if (!fresh || fresh.awaitingName === undefined || fresh.detailsPending || (fresh.name === selected.name && fresh.awaitingName === selected.awaitingName)) return selected;
+      return { ...selected, name: fresh.name, awaitingName: fresh.awaitingName };
+    });
   }, []);
   const sessionsWithSelection = useMemo(() => {
     if (!selectedSession) return sessionCatalog;
@@ -878,10 +884,10 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
     invalidateWorkspaceRestore();
     activeNewSessionDraftKeyRef.current = null;
     setNewSessionCwd(null);
-    setSelectedSession(session);
+    setSelectedSession(lockedWorkspace ? { ...session, awaitingName: !session.name } : session);
     hydrateSelectedSession(session.id);
     router.replace(`?session=${encodeURIComponent(session.id)}`, { scroll: false });
-  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession]);
+  }, [invalidateWorkspaceRestore, router, hydrateSelectedSession, lockedWorkspace]);
 
   const deliverSessionNotification = useCallback(({
     targetSession,

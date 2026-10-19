@@ -287,6 +287,16 @@ function validateHeaders(h) {
     literal(v);
   }
 }
+function validateRole(reference, providers) {
+  if (reference == null) return null;
+  fields(reference, ["provider", "modelId"]);
+  const provider = Object.hasOwn(providers, reference.provider) ? providers[reference.provider] : undefined;
+  if (typeof reference.provider !== "string" || typeof reference.modelId !== "string" || !provider || provider.enabled === false || !provider.models.some((model) => model.id === reference.modelId && model.enabled !== false)) {
+    throw Object.assign(new Error("Assigned model must be available"), { status: 400, publicMessage: "Модель по умолчанию и модель для названий должны быть включены. Сначала измените или очистите назначение." });
+  }
+  return { provider: reference.provider, modelId: reference.modelId };
+}
+
 export function createCorporateModels({
   root,
   secret,
@@ -311,6 +321,8 @@ export function createCorporateModels({
           modelRevision: "initial",
           allowPersonalModels: true,
           providers: {},
+          defaultModel: null,
+          namingModel: null,
         };
       fail(503);
     }
@@ -331,6 +343,8 @@ export function createCorporateModels({
         ]).toString(),
       );
       validateProviders(s.providers);
+      s.defaultModel = validateRole(s.defaultModel, s.providers);
+      s.namingModel = validateRole(s.namingModel, s.providers);
       if (
         typeof s.allowPersonalModels !== "boolean" ||
         typeof s.revision !== "string"
@@ -365,6 +379,8 @@ export function createCorporateModels({
   const masked = (s) => ({
     providers: walk(s.providers, reference),
     revision: s.modelRevision ?? s.revision,
+    defaultModel: s.defaultModel ?? null,
+    namingModel: s.namingModel ?? null,
   });
   async function save(s) {
     await mkdir(root, { recursive: true, mode: 0o700 });
@@ -401,9 +417,14 @@ export function createCorporateModels({
         if (typeof payload.allowPersonalModels !== "boolean") fail();
         s.allowPersonalModels = payload.allowPersonalModels;
       } else {
-        fields(payload, ["providers", "revision"]);
+        fields(payload, ["providers", "revision", "defaultModel", "namingModel"]);
         if (payload.revision !== s.modelRevision) fail(409);
-        s.providers = await resolve(payload.providers);
+        const providers = await resolve(payload.providers);
+        const defaultModel = validateRole(Object.hasOwn(payload, "defaultModel") ? payload.defaultModel : s.defaultModel, providers);
+        const namingModel = validateRole(Object.hasOwn(payload, "namingModel") ? payload.namingModel : s.namingModel, providers);
+        s.providers = providers;
+        s.defaultModel = defaultModel;
+        s.namingModel = namingModel;
         s.modelRevision = randomUUID();
       }
       s.revision = randomUUID();
@@ -457,6 +478,8 @@ export function createCorporateModels({
       policyUrl: `${gatewayUrl}/${id}/policy`,
       gatewayToken: token(id),
       providers,
+      defaultModel: s.defaultModel ? { ...s.defaultModel, provider: `corp-${s.defaultModel.provider}` } : null,
+      namingModel: s.namingModel ? { ...s.namingModel, provider: `corp-${s.namingModel.provider}` } : null,
     };
   }
   const issued = new Set();

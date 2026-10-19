@@ -152,8 +152,10 @@ function readSessionRelationEntries(filePath: string): SessionEntry[] {
 }
 
 export async function attachSessionProjectInfo(sessions: SessionInfo[]): Promise<SessionInfo[]> {
+  const corporate = !!process.env.PI_WEB_MODEL_SNAPSHOT;
   return sessions.map((session) => ({
     ...session,
+    ...(corporate ? { awaitingName: !session.name } : {}),
     projectRoot: session.cwd,
     projectKey: projectIdentityKey(session.cwd),
   }));
