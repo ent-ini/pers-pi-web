@@ -63,6 +63,7 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
+import { shortenPath } from "@/lib/display-path";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -474,7 +475,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
   // Both the session list and files show the current project's path.
   const sessionsPickerRef = useRef<ProjectWorktreePickerHandle>(null);
-  const filesPickerRef = useRef<ProjectWorktreePickerHandle>(null);
+  // The folder the files list, shown in its head (a display, not a chooser).
+  const filesPathRef = useRef<HTMLDivElement>(null);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -561,7 +563,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // that asked was in the sessions tab, which hides with its focus, or the
   // files section was folded. A request also counts when the files already
   // show (below the sessions), hence the counter.
-  const filesFocusRef = useRef<"project-button" | "project-list" | "file-search" | null>(null);
+  const filesFocusRef = useRef<"project-path" | "file-search" | null>(null);
   const [filesFocusRequest, setFilesFocusRequest] = useState(0);
   const contextMenuFocusRef = useRef<HTMLElement | null>(null);
   // The composer's "Open another project…": where the validated folder goes,
@@ -1953,7 +1955,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Everything that goes to the files goes through here: the files tab, or
   // the files section below the sessions, opened (and saved so) if folded.
   // The focus follows once they show.
-  const revealFiles = useCallback((focusTarget: "project-button" | "project-list" | "file-search") => {
+  const revealFiles = useCallback((focusTarget: "project-path" | "file-search") => {
     filesFocusRef.current = focusTarget;
     setFilesFocusRequest((count) => count + 1);
     if (stacked) setFilesSectionCollapsed(false);
@@ -1961,29 +1963,29 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   }, [setFilesSectionCollapsed, stacked, switchTab]);
 
   // "Open in Files" of another project is a deliberate project switch, the
-  // same as choosing it in the files' project list.
+  // same as choosing it in the session list's picker.
   const openProjectInFiles = (project: SidebarProject) => {
     if (!project.current) setSelectedCwd(project.root);
-    revealFiles("project-button");
+    revealFiles("project-path");
   };
 
+  // The folder is chosen in the session list: its picker's menu opens here,
+  // so the choice has one home. The files follow it.
   const handleOpenOtherProject = () => {
-    revealFiles("project-list");
+    sessionsPickerRef.current?.openMenu("project");
   };
-  // Once the files show, the project button takes the focus, or its menu
-  // opens below it (the menu takes the focus: its filter or first project),
-  // or the file search field does. Below the sessions they may show already:
-  // the request counter runs it all the same. An unfolding section is not
-  // shown yet: its button is still below the sidebar's edge, where the
-  // project menu would be placed.
+  // Once the files show, the folder they list takes the focus (a plain
+  // display now: the chooser is the session list's), or the file search field
+  // does. Below the sessions they may show already: the request counter runs
+  // it all the same. An unfolding section is not shown yet: its button is
+  // still below the sidebar's edge.
   const filesShown = stacked ? filesFold.open : sidebarTab === "files";
   useEffect(() => {
     const target = filesFocusRef.current;
     if (!target || !filesShown) return;
     filesFocusRef.current = null;
-    if (target === "project-list") filesPickerRef.current?.openMenu("project");
-    else if (target === "file-search") document.getElementById("file-search-input")?.focus({ preventScroll: true });
-    else filesPickerRef.current?.button("project")?.focus({ preventScroll: true });
+    if (target === "file-search") document.getElementById("file-search-input")?.focus({ preventScroll: true });
+    else filesPathRef.current?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
   const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => {
@@ -2526,39 +2528,21 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
         <div id="session-sidebar-files-body" className="sidebar-files-body" hidden={stacked && filesFold.bodyHidden} inert={stacked && filesFold.bodyInert}>
           {/* One head: the folder in use, then (in the files tab) what is
               done with it; below the sessions the keys are the header row's.
-              The buttons are the head's, not the picker's: its group names
-              only the project and worktree. */}
+              The buttons are the head's, in a group of their own. */}
           <div className="sidebar-files-head">
-            {/* The project and worktree in use: the same picker as the bar above a
-                fresh composer, as two boxes, side by side below the sessions,
-                one under the other in the files tab (the same instance: a
-                layout switch never remounts it). Its worktree box shows only at the
-                top of a git checkout (repo subdirs keep their own project
-                identity, so switching from them would jump projects); a disabled
-                box says why in a subdirectory, and a folder outside git has
-                none. The list comes from the loaded project
-                (not just its forCwd), so switching between worktrees of one
-                project keeps the box instead of flickering while it refetches. */}
-            {lockedWorkspace ? (
-              <div className="project-picker-button is-project" title={selectedCwd ?? ""} style={{ cursor: "default" }}>
-                <span className="project-picker-path"><span>{selectedCwd ?? t("sidebar.selectProject")}</span></span>
+            {/* The folder the files list: the session list's picker chooses it
+                (its menu, with the projects and "Custom path…"), so here it is
+                only shown, and it follows that choice. One chooser, two lists:
+                the folder picked in the sessions is the folder listed here. */}
+            <div
+              className={`project-picker is-${stacked ? "row" : "stacked"}`}
+              role="group"
+              aria-label={t("sidebar.projectAndWorktree")}
+            >
+              <div ref={filesPathRef} className="project-picker-button is-project is-static" title={explorerCwd ?? ""} tabIndex={-1}>
+                <span className="project-picker-path"><span>{explorerCwd ? shortenPath(explorerCwd) : t("sidebar.selectProject")}</span></span>
               </div>
-            ) : <ProjectWorktreePicker
-              handleRef={filesPickerRef}
-              layout={stacked ? "row" : "stacked"}
-              context={newSessionContext ?? { project: null, worktrees: null, currentWorktreePath: null, projects: projectChoiceList }}
-              mobile={isMobile}
-              label={t("sidebar.projectAndWorktree")}
-              placeholder={initialSessionId && !restoredRef.current ? "" : t("sidebar.selectProject")}
-              homeDir={homeDir}
-              projectActivity={projectActivity}
-              newWorktreeTitle={t("sidebar.createWorktreeTitle")}
-              onPick={handleFilesPick}
-              onUseDefaultDirectory={() => { void handleDefaultCwd(); }}
-              onOpenFolder={handleCustomPathClick}
-              onRefreshWorktrees={refreshWorktrees}
-              onCreateWorktree={createWorktree}
-            />}
+            </div>
             {/* The files tab's keys, under the picker. Always the same
                 buttons in the same places: the changes view stays (disabled)
                 while there is nothing changed, so nothing moves as an agent

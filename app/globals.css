@@ -1830,6 +1830,15 @@ pre, code {
   color: var(--text);
 }
 
+/* A display, not a control: the folder the files list, chosen in the
+   session list. It never looks pressed and never takes a pointer. */
+.project-picker-button.is-static,
+.project-picker-button.is-static:hover {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+  cursor: default;
+}
+
 .project-picker-button:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;

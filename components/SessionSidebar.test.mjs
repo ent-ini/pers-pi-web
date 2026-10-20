@@ -210,7 +210,7 @@ test("the tabs layout (the setting on any screen) keeps the two tabs in the same
     '<div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>',
     '<div id="session-sidebar-files-body" className="sidebar-files-body" hidden={stacked && filesFold.bodyHidden} inert={stacked && filesFold.bodyInert}>',
     '<div className="sidebar-files-head">',
-    'handleRef={filesPickerRef}',
+    'className="project-picker-button is-project is-static"',
     "{!stacked && explorerCwd && (\n              <div className=\"sidebar-files-actions\"",
     '<div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle">',
     "<SidebarMenu",
@@ -221,10 +221,13 @@ test("the tabs layout (the setting on any screen) keeps the two tabs in the same
   assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
   assert.equal((source.match(/<FileExplorer\n/g) ?? []).length, 1);
   assert.equal((source.match(/<SessionTree\n/g) ?? []).length, 1);
-  assert.equal((source.match(/<ProjectWorktreePicker\n/g) ?? []).length, 2);
+  assert.equal((source.match(/<ProjectWorktreePicker\n/g) ?? []).length, 1);
   assert.equal((source.match(/<PiWebTitle /g) ?? []).length, 1);
-  // Each picker remains mounted across layout changes; the sessions path stays above its list.
-  assert.match(source, /<ProjectWorktreePicker\s*handleRef=\{filesPickerRef\}\s*layout=\{stacked \? "row" : "stacked"\}/);
+  // The folder is chosen in the session list; the files only show it.
+  assert.match(source, /<ProjectWorktreePicker\s*handleRef=\{sessionsPickerRef\}\s*layout="row"/);
+  assert.doesNotMatch(source, /handleRef=\{filesPickerRef\}/);
+  // The files' head shows the folder they list, as a display, not a control.
+  assert.match(source, /className="project-picker-button is-project is-static" title=\{explorerCwd \?\? ""\} tabIndex=\{-1\}>\s*<span className="project-picker-path"><span>\{explorerCwd \? shortenPath\(explorerCwd\) : t\("sidebar\.selectProject"\)\}<\/span><\/span>/);
   // Only the folder decides whether the explorer is mounted.
   assert.match(source, /\{explorerCwd && \(\s*<FileExplorer/);
   assert.doesNotMatch(source, /explorerOpen|stacked \? \(|isMobile \? \(\s*<|file-explorer-state|--sidebar-session-pane-height/);
@@ -392,14 +395,14 @@ test("everything that goes to the files goes through revealFiles, in either layo
   assert.equal((source.match(/switchTab\("files"\)/g) ?? []).length, 2);
   assert.match(source, /onClick=\{\(\) => switchTab\("files"\)\}/);
   assert.doesNotMatch(appShellSource, /switchTab|sidebar-tab/);
-  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);\s*revealFiles\("project-button"\);/);
-  assert.match(callbackBody("handleOpenOtherProject"), /revealFiles\("project-list"\);/);
+  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);\s*revealFiles\("project-path"\);/);
+  assert.match(callbackBody("handleOpenOtherProject"), /sessionsPickerRef\.current\?\.openMenu\("project"\);/);
   // The focus follows once the files show; below the sessions they may show
   // already, so a request counter runs it too.
   // An unfolding section counts once it is done: its button is still below the sidebar's edge.
   assert.match(source, /const filesShown = stacked \? filesFold\.open : sidebarTab === "files";/);
   const effect = between("const filesShown = ", "const sessionMenuItems");
-  assert.match(effect, /if \(!target \|\| !filesShown\) return;\s*filesFocusRef\.current = null;\s*if \(target === "project-list"\) filesPickerRef\.current\?\.openMenu\("project"\);\s*else if \(target === "file-search"\) document\.getElementById\("file-search-input"\)\?\.focus\(\{ preventScroll: true \}\);\s*else filesPickerRef\.current\?\.button\("project"\)\?\.focus\(\{ preventScroll: true \}\);\s*\}, \[filesShown, filesFocusRequest\]\);/);
+  assert.match(effect, /if \(!target \|\| !filesShown\) return;\s*filesFocusRef\.current = null;\s*if \(target === "file-search"\) document\.getElementById\("file-search-input"\)\?\.focus\(\{ preventScroll: true \}\);\s*else filesPathRef\.current\?\.focus\(\{ preventScroll: true \}\);\s*\}, \[filesShown, filesFocusRequest\]\);/);
 });
 
 test("a layout switch moves focus off a control it removed or hid, and leaves focus outside the sidebar", () => {
@@ -694,8 +697,9 @@ test("below the sessions the picker is one row under the header row, lined up wi
   }
   // The files read the gutter's width from the root, where SessionTree puts it.
   assert.match(treeSource, /element\.closest<HTMLElement>\("\.session-sidebar"\)\?\.style\.setProperty\("--session-tree-scrollbar", width\);/);
-  // The same picker instance in both layouts.
-  assert.match(source, /layout=\{stacked \? "row" : "stacked"\}/);
+  // The same display in both layouts: the folder's box is a row below the
+  // sessions and a column in the files tab.
+  assert.match(source, /className=\{`project-picker is-\$\{stacked \? "row" : "stacked"\}`\}/);
 });
 
 test.skip("upstream Git changes keys in the files tab", () => {
@@ -996,7 +1000,7 @@ test("expanding, collapsing or paging a group never changes the cwd", () => {
   assert.match(treeSource, /onClick=\{\(event\) => handlers\.current\.onToggleGroup\(project\.key, event\.altKey\)\}/);
   assert.match(callbackBody("setAllGroupsExpanded"), /const next = \{ \.\.\.groupExpansion \};\s*for \(const project of model\.projects\) \{\s*delete next\[project\.key\];\s*next\[project\.key\] = expanded\(project\);\s*\}\s*saveGroupChoices\(next, null\);/);
   // "Open in Files" of another project is the one deliberate switch from a group.
-  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);[\s\S]*?revealFiles\("project-button"\);/);
+  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);[\s\S]*?revealFiles\("project-path"\);/);
 });
 
 test("a new session moves the cwd and hands the shell the target's project", () => {
@@ -1103,11 +1107,11 @@ test("a cwd prop that went away and came back still moves the sidebar", () => {
   assert.match(sync, /if \(selectedCwdProp !== lastSyncedCwdPropRef\.current\) \{\s*lastSyncedCwdPropRef\.current = selectedCwdProp;\s*setSelectedCwd\(selectedCwdProp\);/);
 });
 
-test("the footer opens the project list in the files; the archive view replaces the tree", () => {
+test("the footer opens the session list's picker; the archive view replaces the tree", () => {
   const footer = source.slice(source.indexOf("const handleOpenOtherProject"), source.indexOf("const sessionMenuItems"));
-  assert.match(footer, /revealFiles\("project-list"\);\s*\};/);
-  // Once the files show, the picker's project menu opens below its button.
-  assert.match(footer, /if \(target === "project-list"\) filesPickerRef\.current\?\.openMenu\("project"\);/);
+  // The chooser is the session list's: the footer's button opens its project
+  // menu, and the files follow whatever is chosen there.
+  assert.match(footer, /sessionsPickerRef\.current\?\.openMenu\("project"\);\s*\};/);
   assert.match(source, /onOpenOtherProject: handleOpenOtherProject,/);
   assert.match(source, /onOpenArchive: openArchiveView,/);
   // The sessions tab, in the tabs layout (switchTab does nothing below the files).
