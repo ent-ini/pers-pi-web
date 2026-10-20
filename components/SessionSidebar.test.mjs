@@ -156,12 +156,12 @@ test("on a desktop the files sit below the sessions by default, both in view", (
   assert.match(separator, /<div aria-label="Resize file browser" aria-orientation="horizontal" aria-valuemax="2000" aria-valuemin="220" aria-valuenow="320" aria-valuetext="320 px" role="separator" tabindex="0" aria-controls="session-sidebar-panel-files" class="panel-resize-handle sidebar-files-resize-handle" data-resize-handle="sidebar-files" title="Resize file browser: Drag to resize\. Double-click or press Enter to reset\."><\/div>$/);
   // The files section: one header row (folds it; the files' keys at its
   // end in the files tab's order, the file search last), then its body: the
-  // picker's one row and the tree. No row of keys under the picker; nothing
-  // changed, so no count after the label.
+  // tree. The folder is not shown there (the session list chooses it), and
+  // no row of keys under it; nothing changed, so no count after the label.
   const filesPanel = html.slice(html.indexOf(files) + files.length);
   assert.match(filesPanel, /^<div class="sidebar-files-section"><button type="button" class="sidebar-files-section-toggle" aria-expanded="true" aria-controls="session-sidebar-files-body" title="Files"><svg width="12" height="12"[^>]*stroke-width="3"[^>]*class="session-tree-chevron is-open"[^>]*>[\s\S]*?<\/svg><span class="sidebar-files-section-label">Files<\/span><\/button><div class="sidebar-files-keys" role="group" aria-label="File actions"><button type="button" title="Open workspace terminal" aria-label="Open workspace terminal" class="sidebar-tool-button">/);
-  assert.match(filesPanel, /<div id="session-sidebar-files-body" class="sidebar-files-body"><div class="sidebar-files-head"><div class="project-picker is-row" role="group"/);
-  assert.match(filesPanel, /<div class="sidebar-files-scroll scrollbar-subtle">/);
+  assert.match(filesPanel, /<div id="session-sidebar-files-body" class="sidebar-files-body"><div class="sidebar-files-scroll scrollbar-subtle" tabindex="-1">/);
+  assert.doesNotMatch(filesPanel, /sidebar-files-head|project-picker/);
   assert.doesNotMatch(filesPanel, /sidebar-files-toolbar|sidebar-files-title|sidebar-files-actions|sidebar-files-section-search|sidebar-files-changes/);
   assert.doesNotMatch(filesPanel, /sidebar-files-section-count/);
   // Pins and archive not loaded yet: the tree waits instead of flashing archived rows.
@@ -209,10 +209,9 @@ test("the tabs layout (the setting on any screen) keeps the two tabs in the same
     "{stacked && (\n          <div className=\"sidebar-files-section\">",
     '<div className="sidebar-files-keys" role="group" aria-label={t("sidebar.fileActions")}>',
     '<div id="session-sidebar-files-body" className="sidebar-files-body" hidden={stacked && filesFold.bodyHidden} inert={stacked && filesFold.bodyInert}>',
-    '<div className="sidebar-files-head">',
-    'className="project-picker-button is-project is-static"',
-    "{!stacked && explorerCwd && (\n              <div className=\"sidebar-files-actions\"",
-    '<div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle">',
+    "{!stacked && explorerCwd && (\n            <div className=\"sidebar-files-head\">",
+    '<div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>',
+    '<div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle" tabIndex={-1}>',
     "<SidebarMenu",
     "<SidebarToast",
   ];
@@ -223,11 +222,10 @@ test("the tabs layout (the setting on any screen) keeps the two tabs in the same
   assert.equal((source.match(/<SessionTree\n/g) ?? []).length, 1);
   assert.equal((source.match(/<ProjectWorktreePicker\n/g) ?? []).length, 1);
   assert.equal((source.match(/<PiWebTitle /g) ?? []).length, 1);
-  // The folder is chosen in the session list; the files only show it.
+  // The folder is chosen in the session list; the files show no path at all.
   assert.match(source, /<ProjectWorktreePicker\s*handleRef=\{sessionsPickerRef\}\s*layout="row"/);
   assert.doesNotMatch(source, /handleRef=\{filesPickerRef\}/);
-  // The files' head shows the folder they list, as a display, not a control.
-  assert.match(source, /className="project-picker-button is-project is-static" title=\{explorerCwd \?\? ""\} tabIndex=\{-1\}>\s*<span className="project-picker-path"><span>\{explorerCwd \? shortenPath\(explorerCwd\) : t\("sidebar\.selectProject"\)\}<\/span><\/span>/);
+  assert.doesNotMatch(source, /is-static|shortenPath/);
   // Only the folder decides whether the explorer is mounted.
   assert.match(source, /\{explorerCwd && \(\s*<FileExplorer/);
   assert.doesNotMatch(source, /explorerOpen|stacked \? \(|isMobile \? \(\s*<|file-explorer-state|--sidebar-session-pane-height/);
@@ -395,14 +393,14 @@ test("everything that goes to the files goes through revealFiles, in either layo
   assert.equal((source.match(/switchTab\("files"\)/g) ?? []).length, 2);
   assert.match(source, /onClick=\{\(\) => switchTab\("files"\)\}/);
   assert.doesNotMatch(appShellSource, /switchTab|sidebar-tab/);
-  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);\s*revealFiles\("project-path"\);/);
+  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);\s*revealFiles\("file-tree"\);/);
   assert.match(callbackBody("handleOpenOtherProject"), /sessionsPickerRef\.current\?\.openMenu\("project"\);/);
   // The focus follows once the files show; below the sessions they may show
   // already, so a request counter runs it too.
   // An unfolding section counts once it is done: its button is still below the sidebar's edge.
   assert.match(source, /const filesShown = stacked \? filesFold\.open : sidebarTab === "files";/);
   const effect = between("const filesShown = ", "const sessionMenuItems");
-  assert.match(effect, /if \(!target \|\| !filesShown\) return;\s*filesFocusRef\.current = null;\s*if \(target === "file-search"\) document\.getElementById\("file-search-input"\)\?\.focus\(\{ preventScroll: true \}\);\s*else filesPathRef\.current\?\.focus\(\{ preventScroll: true \}\);\s*\}, \[filesShown, filesFocusRequest\]\);/);
+  assert.match(effect, /if \(!target \|\| !filesShown\) return;\s*filesFocusRef\.current = null;\s*if \(target === "file-search"\) document\.getElementById\("file-search-input"\)\?\.focus\(\{ preventScroll: true \}\);\s*else explorerScrollRef\.current\?\.focus\(\{ preventScroll: true \}\);\s*\}, \[filesShown, filesFocusRequest\]\);/);
 });
 
 test("a layout switch moves focus off a control it removed or hid, and leaves focus outside the sidebar", () => {
@@ -665,28 +663,19 @@ test("a key just disabled hands its focus on while the focus is still on it, or 
   assert.deepEqual(focused, []);
 });
 
-test("below the sessions the picker is one row under the header row, lined up with it and with the session rows", () => {
-  // The head: the picker's row alone, no line under it, the tree's first
-  // row 4px under the boxes: the head's 2px, none in the scroll box, the
-  // tree's own 2px (FileExplorer's list).
-  const belowHead = sidebarStyles.slice(sidebarStyles.indexOf(".session-sidebar.is-files-below .sidebar-files-head {"));
-  assert.match(belowHead, /^\.session-sidebar\.is-files-below \.sidebar-files-head \{\s*padding: 2px var\(--sidebar-files-inset-right\) 2px 15px;\s*border-bottom: 0;\s*\}/);
-  assert.match(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-scroll \{\s*padding-top: 0;\s*\}/);
-  const [, , headBottom] = px(belowHead, "padding");
-  const [scrollTop] = px(sidebarStyles.slice(sidebarStyles.indexOf(".session-sidebar.is-files-below .sidebar-files-scroll {")), "padding-top");
+test("below the sessions the files follow the header row directly, without a head of their own", () => {
+  // No head below the sessions: the folder is not shown there (the session
+  // list chooses it), so the tree follows the section's header row. Its
+  // first row is 4px under that row: the scroll box's 2px and the tree's own
+  // 2px (FileExplorer's list).
+  assert.doesNotMatch(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-head/);
+  const [scrollTop] = px(sidebarStyles.slice(sidebarStyles.indexOf(".sidebar-files-scroll {")), "padding-top");
   assert.match(explorerSource, /<div style=\{\{ padding: "2px 4px" \}\}>/);
   const treeTop = 2;
-  assert.equal(headBottom + scrollTop + treeTop, 4, "the tree's first row 4px under the boxes");
-  // An error under them keeps the boxes' edges and that 4px.
-  assert.match(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-error \{\s*padding: 2px var\(--sidebar-files-inset-right\) 4px 15px;\s*\}/);
-  const [, , , headLeft] = px(sidebarStyles.slice(sidebarStyles.indexOf(".session-sidebar.is-files-below .sidebar-files-head {")), "padding");
-  // The paths start in the text column (the chevron column's 6px + 5px, the
-  // 12px chevron, a 3px gap), after the box's 1px line and 10px padding.
-  const [boxLine] = px(globalStyles.slice(globalStyles.indexOf("\n.project-picker-button {")), "border");
-  const [, boxPadding] = px(globalStyles.slice(globalStyles.indexOf("\n.project-picker-button {")), "padding");
-  const textColumn = 6 + 5 + 12 + 3;
-  assert.equal(headLeft + boxLine + boxPadding, textColumn, "the paths in the text column");
-  // The boxes end where the keys end and where a session row's time does,
+  assert.equal(scrollTop + treeTop, 4, "the tree's first row 4px under the header row");
+  // An error above the tree keeps the keys' edge.
+  assert.match(sidebarStyles, /\.session-sidebar\.is-files-below \.sidebar-files-error \{\s*padding: 2px var\(--sidebar-files-inset-right\) 4px 10px;\s*\}/);
+  // The files end where the keys end and where a session row's time does,
   // whatever room the session tree's scrollbar takes (none for an overlay
   // one, 6px on a coarse pointer, 10px in Chromium, more elsewhere): a row
   // ends 6px in or on the scrollbar's gutter, its time 4px inside it.
@@ -697,9 +686,8 @@ test("below the sessions the picker is one row under the header row, lined up wi
   }
   // The files read the gutter's width from the root, where SessionTree puts it.
   assert.match(treeSource, /element\.closest<HTMLElement>\("\.session-sidebar"\)\?\.style\.setProperty\("--session-tree-scrollbar", width\);/);
-  // The same display in both layouts: the folder's box is a row below the
-  // sessions and a column in the files tab.
-  assert.match(source, /className=\{`project-picker is-\$\{stacked \? "row" : "stacked"\}`\}/);
+  // The head is the files tab's alone, and holds its keys.
+  assert.match(source, /\{!stacked && explorerCwd && \(\s*<div className="sidebar-files-head">\s*<div className="sidebar-files-actions"/);
 });
 
 test.skip("upstream Git changes keys in the files tab", () => {
@@ -844,7 +832,7 @@ test.skip("upstream Git ignored-files setting in the sidebar", () => {
 });
 
 test("the files tab keeps FileExplorer mounted under an always-present scroll container", () => {
-  assert.match(source, /<div ref=\{explorerScrollRef\} className="sidebar-files-scroll scrollbar-subtle">\s*\{explorerCwd && \(\s*<FileExplorer/);
+  assert.match(source, /<div ref=\{explorerScrollRef\} className="sidebar-files-scroll scrollbar-subtle" tabIndex=\{-1\}>\s*\{explorerCwd && \(\s*<FileExplorer/);
   assert.match(source, /useScrollbarVisibility\(explorerScrollRef\);/);
   assert.match(source, /const explorerCwd = selectedCwd \?\? selectedCwdProp \?\? null;/);
   assert.match(source, /onOpenTerminal\?\.\(explorerCwd\)/);
@@ -1000,7 +988,7 @@ test("expanding, collapsing or paging a group never changes the cwd", () => {
   assert.match(treeSource, /onClick=\{\(event\) => handlers\.current\.onToggleGroup\(project\.key, event\.altKey\)\}/);
   assert.match(callbackBody("setAllGroupsExpanded"), /const next = \{ \.\.\.groupExpansion \};\s*for \(const project of model\.projects\) \{\s*delete next\[project\.key\];\s*next\[project\.key\] = expanded\(project\);\s*\}\s*saveGroupChoices\(next, null\);/);
   // "Open in Files" of another project is the one deliberate switch from a group.
-  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);[\s\S]*?revealFiles\("project-path"\);/);
+  assert.match(callbackBody("openProjectInFiles"), /if \(!project\.current\) setSelectedCwd\(project\.root\);[\s\S]*?revealFiles\("file-tree"\);/);
 });
 
 test("a new session moves the cwd and hands the shell the target's project", () => {

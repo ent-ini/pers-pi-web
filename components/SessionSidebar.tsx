@@ -63,7 +63,6 @@ import {
   type SessionUiStateRequest,
 } from "@/lib/session-ui-state-shared";
 import { focusIfLost, type FocusDocument } from "@/lib/stacked-dialog";
-import { shortenPath } from "@/lib/display-path";
 import { useFilesPlacement } from "@/hooks/useFilesPlacement";
 import { useI18n } from "@/hooks/useI18n";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -473,10 +472,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [customPathError, setCustomPathError] = useState<string | null>(null);
   const [customPathValidating, setCustomPathValidating] = useState(false);
   const [validatedProject, setValidatedProject] = useState<ValidatedProject | null>(null);
-  // Both the session list and files show the current project's path.
+  // The session list's picker: the one place a folder is chosen.
   const sessionsPickerRef = useRef<ProjectWorktreePickerHandle>(null);
-  // The folder the files list, shown in its head (a display, not a chooser).
-  const filesPathRef = useRef<HTMLDivElement>(null);
   const [explorerKey, setExplorerKey] = useState(0);
   const [explorerUploadBusy, setExplorerUploadBusy] = useState(false);
   const [fileSearchOpen, setFileSearchOpen] = useState(false);
@@ -563,7 +560,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // that asked was in the sessions tab, which hides with its focus, or the
   // files section was folded. A request also counts when the files already
   // show (below the sessions), hence the counter.
-  const filesFocusRef = useRef<"project-path" | "file-search" | null>(null);
+  const filesFocusRef = useRef<"file-tree" | "file-search" | null>(null);
   const [filesFocusRequest, setFilesFocusRequest] = useState(0);
   const contextMenuFocusRef = useRef<HTMLElement | null>(null);
   // The composer's "Open another project…": where the validated folder goes,
@@ -1955,7 +1952,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // Everything that goes to the files goes through here: the files tab, or
   // the files section below the sessions, opened (and saved so) if folded.
   // The focus follows once they show.
-  const revealFiles = useCallback((focusTarget: "project-path" | "file-search") => {
+  const revealFiles = useCallback((focusTarget: "file-tree" | "file-search") => {
     filesFocusRef.current = focusTarget;
     setFilesFocusRequest((count) => count + 1);
     if (stacked) setFilesSectionCollapsed(false);
@@ -1966,7 +1963,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   // same as choosing it in the session list's picker.
   const openProjectInFiles = (project: SidebarProject) => {
     if (!project.current) setSelectedCwd(project.root);
-    revealFiles("project-path");
+    revealFiles("file-tree");
   };
 
   // The folder is chosen in the session list: its picker's menu opens here,
@@ -1974,8 +1971,8 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const handleOpenOtherProject = () => {
     sessionsPickerRef.current?.openMenu("project");
   };
-  // Once the files show, the folder they list takes the focus (a plain
-  // display now: the chooser is the session list's), or the file search field
+  // Once the files show, their tree takes the focus (the folder is not shown
+  // there any more: the session list chooses it), or the file search field
   // does. Below the sessions they may show already: the request counter runs
   // it all the same. An unfolding section is not shown yet: its button is
   // still below the sidebar's edge.
@@ -1985,7 +1982,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (!target || !filesShown) return;
     filesFocusRef.current = null;
     if (target === "file-search") document.getElementById("file-search-input")?.focus({ preventScroll: true });
-    else filesPathRef.current?.focus({ preventScroll: true });
+    else explorerScrollRef.current?.focus({ preventScroll: true });
   }, [filesShown, filesFocusRequest]);
 
   const sessionMenuItems = (row: SessionRow): SidebarMenuItem[] => {
@@ -2526,38 +2523,20 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
             folded, never unmounted. Shown from the start of an unfold, and
             until the end of a fold, inert then. */}
         <div id="session-sidebar-files-body" className="sidebar-files-body" hidden={stacked && filesFold.bodyHidden} inert={stacked && filesFold.bodyInert}>
-          {/* One head: the folder in use, then (in the files tab) what is
-              done with it; below the sessions the keys are the header row's.
-              The buttons are the head's, in a group of their own. */}
-          <div className="sidebar-files-head">
-            {/* The folder the files list: the session list's picker chooses it
-                (its menu, with the projects and "Custom path…"), so here it is
-                only shown, and it follows that choice. One chooser, two lists:
-                the folder picked in the sessions is the folder listed here. */}
-            <div
-              className={`project-picker is-${stacked ? "row" : "stacked"}`}
-              role="group"
-              aria-label={t("sidebar.projectAndWorktree")}
-            >
-              <div ref={filesPathRef} className="project-picker-button is-project is-static" title={explorerCwd ?? ""} tabIndex={-1}>
-                <span className="project-picker-path"><span>{explorerCwd ? shortenPath(explorerCwd) : t("sidebar.selectProject")}</span></span>
-              </div>
-            </div>
-            {/* The files tab's keys, under the picker. Always the same
-                buttons in the same places: the changes view stays (disabled)
-                while there is nothing changed, so nothing moves as an agent
-                edits files and commits. The folder's actions first, the
-                tree's two views last (what it lists, then its changes); its
-                search is the toolbar row's search button. */}
-            {!stacked && explorerCwd && (
+          {/* The files tab's head: what is done with the folder, then a line
+              and the tree. The folder is not shown here: the session list
+              above chooses it, and the tree lists it. Below the sessions
+              there is no head at all (the keys are the header row's). */}
+          {!stacked && explorerCwd && (
+            <div className="sidebar-files-head">
               <div className="sidebar-files-actions" role="group" aria-label={t("sidebar.fileActions")}>
                 {onOpenTerminal && terminalButton}
                 {fileManagerButton}
                 {uploadButton}
                 {refreshButton}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {explorerCwd && fileManagerErrorMessage && (
             <div role="alert" className="sidebar-files-error">
@@ -2568,7 +2547,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
           {/* Mounted whenever there is a cwd, also while the tab or the folded
               section hides it, so the expanded tree, a search and an upload in
               progress survive a switch. */}
-          <div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle">
+          <div ref={explorerScrollRef} className="sidebar-files-scroll scrollbar-subtle" tabIndex={-1}>
             {explorerCwd && (
               <FileExplorer
                 ref={fileExplorerRef}

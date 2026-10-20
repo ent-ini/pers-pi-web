@@ -1447,47 +1447,34 @@
   cursor: default;
 }
 
-/* Files tab: the folder in use (the stacked project picker's two boxes,
-   app/globals.css) and what is done with it, then a line and the tree. */
+/* Files tab: what is done with the folder, then a line and the tree. The
+   folder itself is not shown here (the session list chooses it). */
 .sidebar-files-head {
   display: flex;
   flex: none;
   flex-direction: column;
-  padding: 10px 10px 4px;
+  padding: 6px 10px 4px;
   border-bottom: 1px solid var(--border);
 }
 
-/* Below the sessions the head is the picker's one row (its keys are the
-   header row's): the paths start in the text column (15px, the box's 1px
-   line and its 10px: 26px), the boxes end on the keys' edge, and no line
-   parts it from the tree, whose first row starts 4px under the boxes (the
-   head's 2px, then the tree's own 2px; the scroll box adds none). An error
-   under them keeps that 4px and the boxes' edges. */
-.session-sidebar.is-files-below .sidebar-files-head {
-  padding: 2px var(--sidebar-files-inset-right) 2px 15px;
-  border-bottom: 0;
-}
-
-.session-sidebar.is-files-below .sidebar-files-scroll {
-  padding-top: 0;
-}
-
+/* Below the sessions there is no head: the keys are the header row's, and
+   the tree follows it directly (its own 2px under the row). An error above
+   it keeps the keys' edge. */
 .session-sidebar.is-files-below .sidebar-files-error {
-  padding: 2px var(--sidebar-files-inset-right) 4px 15px;
+  padding: 2px var(--sidebar-files-inset-right) 4px 10px;
 }
 
-/* The head's last row: the actions on that folder and the tree's two
-   views, used often enough to stay in view (its search is the toolbar
-   row's). The folder's four from the left, the tree's views (ignored files,
-   changes) at the right end, the row's edges on the boxes'. Always the same
-   six (the changes view is disabled, not gone, without changes), so nothing
-   moves as the count flips. At the sidebar's 180px minimum they give way
-   together, down to 21px wide, and the gap before the views closes. */
+/* The head's row: the actions on that folder, used often enough to stay in
+   view (its search is the toolbar row's). The folder's four from the left,
+   the tree's two views at the right end; the row's edges on the panel's.
+   Always the same ones (the changes view stays, disabled, while nothing is
+   changed), so nothing moves as the count flips. At the sidebar's 180px
+   minimum they give way together, down to 21px wide, and the gap before the
+   views closes. */
 .sidebar-files-actions {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
 }
 
 /* The first of the tree's views. A wrapper around the two would be sized
