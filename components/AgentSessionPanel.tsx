@@ -1,7 +1,7 @@
 "use client";
 
 import { sessionDisplayTitle } from "@/lib/session-fork-name";
-import { stripSourceTag } from "@/lib/source-tag";
+import { stripSourceTagLines } from "@/lib/source-tag";
 
 import { useMemo, useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
@@ -16,7 +16,7 @@ interface Props {
 }
 
 function sessionTitle(session: SessionInfo): string {
-  return session.awaitingName ? sessionDisplayTitle(session) : session.name || stripSourceTag(session.firstMessage) || session.id.slice(0, 12);
+  return session.awaitingName ? sessionDisplayTitle(session) : session.name || stripSourceTagLines(session.firstMessage) || session.id.slice(0, 12);
 }
 
 function formatRelativeTime(value: string, locale: string): string {

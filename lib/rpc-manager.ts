@@ -20,7 +20,7 @@ import {
 import { cacheSessionPath, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
 import { notifySessionComplete } from "./web-push";
-import { stripSourceTag } from "./source-tag";
+import { stripSourceTagLines } from "./source-tag";
 import { hasActiveSessionLivenessProvider } from "./session-liveness";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionLike, ExtensionUiContextLike, ToolInfo } from "./pi-types";
@@ -2282,7 +2282,7 @@ export function getRpcSessionInfos(options: { includeTransient?: boolean } = {})
       created,
       modified: new Date(lastActivityMs).toISOString(),
       messageCount: messages.length,
-      firstMessage: firstUserMessage ? stripSourceTag(runtimeMessageText(firstUserMessage)) || "(no messages)" : "(no messages)",
+      firstMessage: firstUserMessage ? stripSourceTagLines(runtimeMessageText(firstUserMessage)) || "(no messages)" : "(no messages)",
       ...(subagent ? {
         parentSessionId: subagent.parentSessionId,
         relation: {

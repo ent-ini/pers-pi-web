@@ -28,3 +28,15 @@ export function withSourceTag(text: string): string {
 export function stripSourceTag(text: string): string {
   return text.replace(SOURCE_TAG_RE, "");
 }
+
+// A source tag on a line of its own, anywhere in the text: the macOS client
+// puts file attachments before the tag, so the tag is not always the first
+// thing in the message. Titles use this rule — the tag is metadata, whatever
+// line it sits on — while the chat keeps the stricter leading-only strip.
+const SOURCE_TAG_LINE_RE = /^[ \t]*\[source:[^\]\n]+\][ \t]*$/;
+
+export function stripSourceTagLines(text: string): string {
+  if (!text.includes("[source:")) return text;
+  const kept = text.split("\n").filter((line) => !SOURCE_TAG_LINE_RE.test(line));
+  return kept.join("\n").trim();
+}

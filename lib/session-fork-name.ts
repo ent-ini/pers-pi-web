@@ -1,5 +1,5 @@
 import { skillExpansionToCommand } from "./slash-display";
-import { stripSourceTag } from "./source-tag";
+import { stripSourceTagLines } from "./source-tag";
 
 /**
  * The name the sidebar's Fork gives its copy: the title the sidebar shows for
@@ -27,7 +27,7 @@ export function sessionDisplayTitle(session: { id: string; name?: string; firstM
   if (session.awaitingName) return "Новая сессия";
   // The client metadata line ("[source:pi-web type=text]") is never a title;
   // stripping it also lets a skill expansion be recognized again.
-  const firstMessage = stripSourceTag(session.firstMessage);
+  const firstMessage = stripSourceTagLines(session.firstMessage);
   return (skillExpansionToCommand(firstMessage) ?? firstMessage) || session.id.slice(0, 12);
 }
 

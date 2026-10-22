@@ -11,7 +11,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
-import { stripSourceTag } from "./source-tag";
+import { stripSourceTagLines } from "./source-tag";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -212,7 +212,7 @@ export async function scanSessionFileInfo(
 			if (!textContent) continue;
 			// The client metadata line ("[source:pi-web type=text]") is part of the
 			// stored text, never part of the session's title.
-			if (!firstMessage && message.role === "user") firstMessage = stripSourceTag(textContent);
+			if (!firstMessage && message.role === "user") firstMessage = stripSourceTagLines(textContent);
 		}
 
 		if (!header) return null;
