@@ -26,6 +26,7 @@ import { readSubagentRun, readSubagentSessionResources, SUBAGENT_META_TYPE } fro
 import { readSessionToolSelection } from "@/lib/session-tool-selection";
 import { jsonResponse } from "@/lib/json-response";
 import { forgetSessionUiState } from "@/lib/session-ui-state";
+import { stripSourceTag } from "@/lib/source-tag";
 
 export async function GET(
   req: Request,
@@ -120,7 +121,9 @@ export async function GET(
       firstMessage: firstUserMessage
         ? (() => {
             const c = (firstUserMessage as { content: unknown }).content;
-            return typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "") || "(no messages)";
+            const text = typeof c === "string" ? c : (Array.isArray(c) ? (c.find((b: { type: string }) => b.type === "text") as { text: string } | undefined)?.text ?? "" : "");
+            // The client metadata line ("[source:pi-web type=text]") is not a title.
+            return stripSourceTag(text) || "(no messages)";
           })()
         : "(no messages)",
       parentSessionId,

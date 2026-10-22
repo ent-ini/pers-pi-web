@@ -1,6 +1,7 @@
 "use client";
 
 import { sessionDisplayTitle } from "@/lib/session-fork-name";
+import { stripSourceTag } from "@/lib/source-tag";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MessageView } from "./MessageView";
@@ -73,7 +74,7 @@ export function SubagentViewer({ sessionId, fallbackLabel, running, onOpenFile }
         const data = await res.json() as { info?: SessionInfo; error?: string };
         if (!data.info) throw new Error(data.error ?? `HTTP ${res.status}`);
         setInfo(data.info);
-        setLabel(data.info.awaitingName ? sessionDisplayTitle(data.info) : data.info.name || data.info.firstMessage || fallbackLabel);
+        setLabel(data.info.awaitingName ? sessionDisplayTitle(data.info) : data.info.name || stripSourceTag(data.info.firstMessage) || fallbackLabel);
       } catch {
         /* non-fatal: the context view below is the primary content */
       }

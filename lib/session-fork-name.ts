@@ -1,4 +1,5 @@
 import { skillExpansionToCommand } from "./slash-display";
+import { stripSourceTag } from "./source-tag";
 
 /**
  * The name the sidebar's Fork gives its copy: the title the sidebar shows for
@@ -22,8 +23,12 @@ const FORK_SUFFIX_RE = / · [0-9a-f]{4}$/;
  * session list's own (scanSessionFileInfo()).
  */
 export function sessionDisplayTitle(session: { id: string; name?: string; firstMessage: string; awaitingName?: boolean }): string {
-  return session.name
-    || (session.awaitingName ? "Новая сессия" : (skillExpansionToCommand(session.firstMessage) ?? session.firstMessage) || session.id.slice(0, 12));
+  if (session.name) return session.name;
+  if (session.awaitingName) return "Новая сессия";
+  // The client metadata line ("[source:pi-web type=text]") is never a title;
+  // stripping it also lets a skill expansion be recognized again.
+  const firstMessage = stripSourceTag(session.firstMessage);
+  return (skillExpansionToCommand(firstMessage) ?? firstMessage) || session.id.slice(0, 12);
 }
 
 /** `text` cut to at most `max` code points, the last an ellipsis; a surrogate pair is never split. */

@@ -26,7 +26,7 @@ import { CONFIGURED_TOOL_PRESET, getPresetFromToolNames, getToolNamesForPreset, 
 import type { SessionStatsInfo } from "@/lib/pi-types";
 import { mergeSessionStats, type SessionFileStats } from "@/lib/session-stats";
 import { userMessageKey } from "@/lib/prompt-recovery";
-import { withSourceTag } from "@/lib/source-tag";
+import { withSourceTag, stripSourceTag } from "@/lib/source-tag";
 import { AgentEventConnection } from "@/lib/agent-event-connection";
 import { isNestedToolExecutionEvent, isSystemMessageEvent } from "@/lib/agent-event-wire";
 import { getToolExecutionProgress } from "@/lib/tool-execution-progress";
@@ -1802,7 +1802,7 @@ export function useAgentSession(opts: UseAgentSessionOptions) {
           message: taggedMessage,
           ...(piImages?.length ? { images: piImages } : {}),
         });
-        promoteNewSession(1, taggedMessage);
+        promoteNewSession(1, stripSourceTag(taggedMessage));
       } else if (session) {
         sentSessionId = session.id;
         await ensureEventsConnected(session.id);

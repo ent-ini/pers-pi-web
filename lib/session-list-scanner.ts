@@ -11,6 +11,7 @@ import { basename, join } from "node:path";
 import { createInterface } from "node:readline";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { writePrivateFileAtomicSync } from "./atomic-file";
+import { stripSourceTag } from "./source-tag";
 
 export interface ScannedSessionInfo {
 	path: string;
@@ -44,7 +45,10 @@ function isRecord(value: unknown): value is RawEntry {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const INDEX_FORMAT_VERSION = 1;
+// v2: firstMessage is stored without the client metadata line ("[source:…]").
+// Bumping the version rebuilds the persisted index once, so titles written
+// before the strip are refreshed instead of being served from the old cache.
+const INDEX_FORMAT_VERSION = 2;
 
 declare global {
 	var __piWebScanIndex: Map<string, IndexEntry> | undefined;
@@ -206,7 +210,9 @@ export async function scanSessionFileInfo(
 
 			const textContent = extractTextContent(message);
 			if (!textContent) continue;
-			if (!firstMessage && message.role === "user") firstMessage = textContent;
+			// The client metadata line ("[source:pi-web type=text]") is part of the
+			// stored text, never part of the session's title.
+			if (!firstMessage && message.role === "user") firstMessage = stripSourceTag(textContent);
 		}
 
 		if (!header) return null;

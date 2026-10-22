@@ -1,6 +1,7 @@
 "use client";
 
 import { sessionDisplayTitle } from "@/lib/session-fork-name";
+import { stripSourceTag } from "@/lib/source-tag";
 
 import { useEffect, useState, type ReactNode } from "react";
 import { useI18n } from "@/hooks/useI18n";
@@ -66,7 +67,7 @@ export function SessionSearch({ open, query, children, selectedSessionId, onSele
           className={`block w-full cursor-pointer border-b border-border px-3 py-2 text-left hover:bg-bg-hover focus-visible:outline-2 focus-visible:outline-accent ${session.id === selectedSessionId ? "bg-bg-selected" : ""}`}
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            <span className="min-w-0 truncate text-xs font-medium text-text">{session.awaitingName ? sessionDisplayTitle(session) : session.name || session.firstMessage}</span>
+            <span className="min-w-0 truncate text-xs font-medium text-text">{session.awaitingName ? sessionDisplayTitle(session) : session.name || stripSourceTag(session.firstMessage)}</span>
             {archivedSessionIds?.has(session.id) && (
               <span className="shrink-0 rounded-[4px] border border-border px-1 text-[10px] leading-[14px] text-text-dim">{t("sidebar.archived")}</span>
             )}
