@@ -453,7 +453,12 @@ export async function listSessionsIncremental(
 			|| b.mtimeMs - a.mtimeMs
 			|| basename(b.info.path).localeCompare(basename(a.info.path)),
 		)
-		.map(({ info }) => info);
+		.map(({ info }) => {
+			// The cached row may come from an index written before the strip, so
+			// the title is cleaned on the way out, not only while scanning.
+			const firstMessage = stripSourceTagLines(info.firstMessage);
+			return firstMessage === info.firstMessage ? info : { ...info, firstMessage };
+		});
 }
 
 /** Test seam: drop all in-memory index state. */
