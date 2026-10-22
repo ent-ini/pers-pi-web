@@ -284,6 +284,40 @@
   flex-direction: column;
 }
 
+.modelAssignments {
+  border-bottom: 1px solid var(--line);
+}
+
+.modelAssignmentsBody {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: 16px;
+  align-items: end;
+  padding: 22px;
+}
+
+.modelAssignmentsActions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.modelAssignmentSelect {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.modelAssignmentSelect:disabled {
+  opacity: 0.6;
+}
+
 .modelsEditorHeading {
   padding: 22px;
   border-bottom: 1px solid var(--line);

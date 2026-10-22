@@ -124,27 +124,6 @@ interface ModelsJson {
   namingModel?: { provider: string; modelId: string } | null;
 }
 
-function CorporateModelRoles({ draft, onChange }: { draft: ModelsJson; onChange: (next: ModelsJson) => void }) {
-  const options = Object.entries(draft.providers ?? {}).flatMap(([provider, entry]) => (entry.models ?? []).filter((model) => model.id).map((model) => ({
-    value: JSON.stringify({ provider, modelId: model.id }),
-    label: `${model.name || model.id} · ${provider}`,
-    disabled: entry.enabled === false || model.enabled === false,
-  })));
-  return <section aria-label="Назначение моделей" style={{ padding: 16, borderBottom: "1px solid var(--border)", display: "grid", gap: 10 }}>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))", gap: 12 }}>
-      {([ ["defaultModel", "Модель по умолчанию", "Автоматический выбор"], ["namingModel", "Модель для названий", "Автоназывание выключено"] ] as const).map(([key, label, empty]) => {
-        const value = draft[key] ? JSON.stringify({ provider: draft[key].provider, modelId: draft[key].modelId }) : "";
-        return <Field key={key} label={label}><select aria-label={label} value={value} style={{ ...inputStyle, width: "100%", minWidth: 0 }} onChange={(event) => onChange({ ...draft, [key]: event.target.value ? JSON.parse(event.target.value) : null })}>
-          <option value="">{empty}</option>
-          {value && !options.some((option) => option.value === value) && <option value={value} disabled>Модель удалена — измените назначение</option>}
-          {options.map((option) => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}{option.disabled ? " (выключена)" : ""}</option>)}
-        </select></Field>;
-      })}
-    </div>
-    <p style={{ margin: 0, fontSize: 11, color: "var(--text-muted)" }}>Модель по умолчанию — для новых чатов всех сотрудников. Название обновляется после 2, 6 и 16 сообщений; ручные названия сохраняются. Все изменения применяются кнопкой «Сохранить».</p>
-  </section>;
-}
-
 interface CorporatePreset { id: string; displayName: string; provider: ProviderEntry }
 const ModelsConfigEnvironment = createContext({ corporate: false, request: (path: string, init?: RequestInit) => fetch(path, init) });
 
@@ -2231,7 +2210,6 @@ function ModelsConfigEditor({ onClose, embedded, cwd }: {
 
         {/* A corporate save returns masked secrets; freeze its draft until that response lands. */}
         <div inert={corporate && saving} style={{ display: "flex", flexDirection: corporate ? "column" : undefined, flex: 1, minHeight: 0 }}>
-        {corporate && !loading && <CorporateModelRoles draft={config} onChange={setConfig} />}
         <ConfigSplitView>
 
           {/* Left: tree */}

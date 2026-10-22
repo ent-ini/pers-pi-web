@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ModelsConfig } from "./ModelsConfig";
+import { CorporateModelAssignments } from "./CorporateModelAssignments";
 import { ConfigSwitch } from "./SettingsUi";
 import styles from "./MultiuseAdmin.module.css";
 
@@ -57,6 +58,7 @@ export function CorporateModels() {
       {error && <div className={styles.modelPolicyFeedback} role="alert">{error} <button className={styles.secondaryButton} disabled={pending} onClick={() => setAttempt((value) => value + 1)}>Повторить</button></div>}
       {feedback && <div className={styles.modelPolicyFeedback} role="status">{feedback}</div>}
     </section>
+    <CorporateModelAssignments />
     <section className={styles.modelsEditor} aria-label="Модели компании">
       <div className={styles.modelsEditorHeading}>
         <h2>Модели компании</h2>
