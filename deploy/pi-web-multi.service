@@ -1,0 +1,21 @@
+[Unit]
+Description=pi-web multiuse (corporate AI chat for the buhgalter company)
+Documentation=https://github.com/ent-ini/pers-pi-web
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=buhgalter
+Group=buhgalter
+WorkingDirectory=/opt/pi-web-multi
+# Recreates the control-plane and the worker manager if their compose config
+# changed, and starts them with the published port that the reverse proxy
+# needs. Worker containers carry their own restart policy and are not touched.
+ExecStart=/usr/bin/docker compose -f /opt/pi-web-multi/docker-compose.multi.yml up -d
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
