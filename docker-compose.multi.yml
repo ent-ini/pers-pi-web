@@ -4,7 +4,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: pi_web_multi
-    restart: unless-stopped
+    # `always` and not `unless-stopped`: a container that was stopped by hand
+    # (or by a shutdown script) must still come back after the host reboots,
+    # otherwise the corporate chat stays down until somebody notices.
+    restart: always
     env_file:
       - .env.multi
     environment:
@@ -25,7 +28,7 @@ services:
       context: .
       dockerfile: multiuse-manager/Dockerfile
     container_name: pi_web_worker_manager
-    restart: unless-stopped
+    restart: always
     env_file:
       - .env.multi
     environment:

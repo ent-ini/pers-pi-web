@@ -9,6 +9,7 @@ import { createWorkspaceTemplates, snapshotTemplate } from "./workspace-template
 import { resetStoppedWorker, serialize } from "./workspace-reset.mjs";
 import { assertWorkerMounts, replaceWorkerImage } from "./worker-image.mjs";
 import { connectWorkerEgress, ensureEgressNetwork } from "./worker-network.mjs";
+import { workerHostConfig } from "./worker-container-config.mjs";
 
 const socketPath = "/var/run/docker.sock";
 const dataRoot = "/data/pi-web/users";
@@ -105,11 +106,7 @@ async function createWorker(name, root, imageId) {
   await docker("POST", `/containers/create?name=${name}`, {
     Image: imageId, Cmd: ["--mode", "single", "--hostname", "0.0.0.0", "--no-open"],
     Env: ["PI_WEB_MODEL_SNAPSHOT=/run/pi-web-models/snapshot.json", "HOME=/home/pi", "PI_WEB_MODE=single", "PI_WEB_HOSTNAME=0.0.0.0", "PI_WEB_NO_OPEN=1", "PI_WEB_DEFAULT_CWD=/workspace", "PI_WEB_LOCKED_CWD=/workspace", `PI_WEB_ALLOWED_HOSTS=${name}`],
-    HostConfig: { NetworkMode: network, ReadonlyRootfs: true, CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"], PidsLimit: 256, Memory: 2147483648, NanoCpus: 2000000000, Tmpfs: { "/tmp": "rw,noexec,nosuid,size=256m" }, Mounts: [
-      { Type: "bind", Source: `/data/pi-web/control/model-snapshots/${root.split("/").at(-1)}`, Target: "/run/pi-web-models", ReadOnly: true },
-      { Type: "bind", Source: `${root}/agent`, Target: "/home/pi/.pi", ReadOnly: false },
-      { Type: "bind", Source: `${root}/workspace`, Target: "/workspace", ReadOnly: false },
-    ] },
+    HostConfig: workerHostConfig({ network, root, snapshotDir: `/data/pi-web/control/model-snapshots/${root.split("/").at(-1)}` }),
   });
 }
 async function ensureWorker(identity) {
