@@ -39,7 +39,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ users, workerAvailable }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof AdminUsersError) {
-      return NextResponse.json({ error: error.status === 503 ? "BPM временно недоступен" : "Нет доступа к списку сотрудников BPM" }, { status: error.status, headers: { "Cache-Control": "no-store" } });
+      if (error.status === 503) return NextResponse.json({ error: "BPM временно недоступен" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+      // BPM rejected the bearer token: the session cannot authorise anything
+      // any more, so drop the cookie and let the user sign in again.
+      if (error.status === 401) {
+        const response = NextResponse.json({ error: "Сессия истекла. Войдите заново." }, { status: 401, headers: { "Cache-Control": "no-store" } });
+        response.cookies.set({ name: PI_WEB_MULTI_SESSION_COOKIE, value: "", httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
+        return response;
+      }
+      return NextResponse.json({ error: "Нет доступа к списку сотрудников BPM" }, { status: error.status, headers: { "Cache-Control": "no-store" } });
     }
     console.error("[multiuse-admin] employee catalogue failed", error);
     return NextResponse.json({ error: "Не удалось загрузить сотрудников BPM" }, { status: 503, headers: { "Cache-Control": "no-store" } });
