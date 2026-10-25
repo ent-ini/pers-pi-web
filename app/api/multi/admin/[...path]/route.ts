@@ -67,7 +67,17 @@ async function forward(request: NextRequest, context: { params: Promise<{ path: 
     return new NextResponse(response.body, { status: response.status, headers: { "content-type": response.headers.get("content-type") || "application/json", "cache-control": "no-store" } });
   } catch (error) {
     if (error instanceof ModelBodyLimitError) return NextResponse.json({error:"Request too large"},{status:413});
-    if (error instanceof AdminUsersError) return NextResponse.json({ error: error.status === 503 ? "BPM временно недоступен" : "Права администратора в BPM больше не действуют" }, { status: error.status });
+    if (error instanceof AdminUsersError) {
+      if (error.status === 503) return NextResponse.json({ error: "BPM временно недоступен" }, { status: 503 });
+      // BPM rejected the bearer token: the session cannot authorise anything
+      // any more, so drop the cookie and let the user sign in again.
+      if (error.status === 401) {
+        const response = NextResponse.json({ error: "Сессия истекла. Войдите заново." }, { status: 401 });
+        response.cookies.set({ name: PI_WEB_MULTI_SESSION_COOKIE, value: "", httpOnly: true, sameSite: "lax", secure: true, path: "/", maxAge: 0 });
+        return response;
+      }
+      return NextResponse.json({ error: "Права администратора в BPM больше не действуют" }, { status: error.status });
+    }
     console.error("[multiuse-admin] manager request failed", error);
     return NextResponse.json({ error: "Административный сервис временно недоступен." }, { status: 503 });
   }

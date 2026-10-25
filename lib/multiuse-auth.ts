@@ -51,6 +51,20 @@ function isIdentity(value: unknown): value is MultiuseIdentity {
   ));
 }
 
+/** Read the expiry claim of a BPM bearer token without trusting its signature.
+ * The token is only used to bound our own session lifetime; BPM stays the one
+ * that validates it. Returns null when the token carries no usable expiry. */
+export function bpmTokenExpiresAt(accessToken: string): number | null {
+  const parts = accessToken.split(".");
+  if (parts.length !== 3) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { exp?: unknown };
+    return typeof payload.exp === "number" && Number.isSafeInteger(payload.exp) ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Encrypt BPM's bearer token before placing it in the HttpOnly session cookie. */
 export function createMultiuseSessionToken(
   accessToken: string,
@@ -59,7 +73,11 @@ export function createMultiuseSessionToken(
   now = Date.now(),
   iv = randomBytes(12),
 ): string {
-  const expiresAt = Math.floor(now / 1000) + PI_WEB_MULTI_SESSION_MAX_AGE;
+  const week = Math.floor(now / 1000) + PI_WEB_MULTI_SESSION_MAX_AGE;
+  // The session must never outlive the BPM token inside it: a refreshed cookie
+  // with a dead token looks alive in the chat but fails every BPM re-check.
+  const tokenExpiry = bpmTokenExpiresAt(accessToken);
+  const expiresAt = tokenExpiry === null ? week : Math.min(week, tokenExpiry);
   const payload: SerializedSession = { version: 1, expiresAt, accessToken, identity };
   const cipher = createCipheriv("aes-256-gcm", keyFor(config.sessionSecret), iv);
   const ciphertext = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
@@ -94,6 +112,11 @@ export function readMultiuseSessionToken(
       || !payload.accessToken
       || !isIdentity(payload.identity)
     ) return null;
+    // A BPM token that has expired cannot authorise anything any more, so the
+    // session it lives in is dead as well: send the user back to the login
+    // form instead of letting them hit a broken admin panel later.
+    const tokenExpiry = bpmTokenExpiresAt(payload.accessToken);
+    if (tokenExpiry !== null && tokenExpiry <= Math.floor(now / 1000)) return null;
     return { accessToken: payload.accessToken, identity: payload.identity, expiresAt };
   } catch {
     return null;
