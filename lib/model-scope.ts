@@ -139,17 +139,27 @@ export async function resolveVisibleModels(
     getAvailable: async () => available,
   } as ModelRuntime;
   const { scopedModels, diagnostics } = await resolveModelScopeWithDiagnostics(cleaned, snapshotRuntime);
+  // In corporate mode the personal `enabledModels` list is leftover state: it
+  // can still name a model that only ever existed under a personal key (for
+  // example "minimax/MiniMax-M3" from before the company gateway existed).
+  // Such a pattern matches nothing in the corporate catalogue and would show
+  // a permanent "no models match" warning in the employee chat, so ignore it
+  // instead of nagging about the company's own configuration.
+  const corporate = corporateSnapshot();
   // A leftover valid glob after a model was removed is not a chat-level problem
   // when other enabledModels entries still matched. Keep exact and malformed
   // pattern warnings, and keep all no-match warnings for a total miss, where
   // the UI falls back to every available model and the user needs to know the
   // scope did not apply.
   const warnings = diagnostics
-    .filter((diagnostic) => (
-      diagnostic.code !== "no-match"
-      || scopedModels.length === 0
-      || !isSuppressibleUnmatchedGlob(diagnostic.pattern)
-    ))
+    .filter((diagnostic) => {
+      if (diagnostic.code === "no-match" && corporate) return false;
+      return (
+        diagnostic.code !== "no-match"
+        || scopedModels.length === 0
+        || !isSuppressibleUnmatchedGlob(diagnostic.pattern)
+      );
+    })
     .map((diagnostic) => diagnostic.message);
   if (scopedModels.length === 0) {
     return finish({
