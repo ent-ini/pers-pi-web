@@ -9,7 +9,7 @@ import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
-import { DirectoryListing } from "./DirectoryListing";
+import { DirectoryPanel } from "./DirectoryPanel";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -2382,15 +2382,15 @@ export function AppShell({ autoSelectDefaultCwd = false, lockedWorkspace = false
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
           {activeFileTab?.kind === "directory" ? (
-            <DirectoryListing
+            <DirectoryPanel
               key={`${fileWorkspaceGeneration}:${activeFileTab.id}`}
               directoryPath={activeFileTab.filePath}
-              onOpenFile={(filePath) => handleOpenFile(
+              onOpenFile={(filePath, fileName) => handleOpenFile(
                 filePath,
-                getFileName(filePath),
+                fileName,
                 { sourceSessionId: activeFileTab.sourceSessionId },
               )}
-              onOpenDirectory={handleOpenDirectory}
+              onOpenTerminal={handleOpenTerminal}
             />
           ) : activeFileTab?.filePath ? (
             <FileViewer
