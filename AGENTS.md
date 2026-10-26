@@ -63,6 +63,7 @@ app/api/
   home/route.ts                    GET user home directory
   open-in-explorer/route.ts        GET availability | POST open a cwd in the OS file manager (loopback only)
   files/[...path]/route.ts         GET ?type=list|read|download|meta|preview|watch | POST ?type=upload|upload-check|allow-link
+  file-kinds/route.ts              GET ?paths=…&sessionId=… file or directory per mentioned path
   file-index/route.ts              GET file list for @-mentions
   inbox/route.ts                   POST chat attachments to workspace inbox/
   terminal/route.ts                POST create a terminal session
@@ -122,6 +123,8 @@ lib/
   enabled-models-runtime.ts SDK adapter for enabledModels: pattern resolution, provider kinds, settings IO
   subagent-settings.ts      read/write ~/.pi/agent/agents/settings.json
   file-access.ts            allowed file roots for /api/files and worktrees
+  agent-dir.ts              pi's agent directory (~/.pi/agent), resolved like pi resolves it
+  file-path-kinds.ts        what a mentioned path is (file or directory): the browser's cache and the ask
   file-upload-client.ts     browser upload to /api/files ?type=upload, shared by the explorer and chat drops
   linked-directory.ts       directory links leading outside the allowed roots + the allow-link check
   file-paths.ts             client/server path encoding helpers
@@ -197,6 +200,7 @@ components/
   McpAddServer.tsx         Settings › MCP add pane: paste, preview, values, name, scope
   mcp-add-helpers.ts       pure helpers and the add request for McpAddServer
   FileExplorer.tsx         file tree in the sidebar
+  DirectoryListing.tsx     right-panel listing of a folder a chat message named
   FileIcons.tsx            file icon helpers
   FileViewer.tsx           file content in a tab
   DelimitedTable.tsx       a CSV/TSV file's Preview: virtualized table, gutter of file lines
@@ -209,6 +213,7 @@ hooks/
   useFilesPlacement.ts     per-browser choice: the desktop sidebar's file browser below the sessions or in its own tab
   useGroupDrag.ts          dragging a sidebar project group: mouse threshold, touch/pen long-press, auto-scroll, drop
   useIsMobile.ts           responsive breakpoint
+  usePathKinds.ts          the kind (file or directory) of every path a message names
   useSessionUiState.ts     sidebar pins, archive, project order: optimistic writes in order, refetch on revision change
   useSidebarMotion.ts      the sidebar's fold and archive-view motion: phase, end fallback, reduced motion, what shows meanwhile
   useKeyboardShortcuts.ts  Esc stops the running agent unless a field or nearer handler took it; Ctrl+Alt+N
@@ -229,7 +234,7 @@ Design decisions and traps live in `docs/agents/`, one note per area. Read every
 - [mcp-test-sign-in.md](docs/agents/mcp-test-sign-in.md): Settings › MCP Test (route checks, bounded connection, `!command` queue, redaction, status store) and OAuth sign-in / sign-out. Files: `app/api/mcp/test/**`, `app/api/mcp/sign-in/**`, `lib/mcp-test.ts`, `lib/mcp-entry-request.ts`, `lib/mcp-status.ts`, `lib/mcp-sign-in.ts`, `lib/mcp-sign-out.ts`, `components/McpSignIn.tsx`, `components/mcp-sign-in-helpers.ts`, `components/OAuthPastePanel.tsx`.
 - [mcp-add.md](docs/agents/mcp-add.md): Settings › MCP add (paste re-parsed on the server, host-variable confirmation, literal secrets kept global, fresh-folder trust, the add pane) and the paste importer's escaping and grammars. Files: `lib/mcp-add.ts`, `lib/mcp-import*.ts`, `lib/shell-words.ts`, fresh-folder trust in `lib/project-trust.ts`, `components/McpAddServer.tsx`, `components/mcp-add-helpers.ts`, the `add` action of `app/api/mcp/route.ts`.
 - [models.md](docs/agents/models.md): default model and reasoning level, providers registered at session_start, mid-run reasoning changes, remote provider catalogs, `enabledModels` scoping and minimal edits, provider auth listing and credentials. Files: `app/api/models/**`, `app/api/models-config/**`, `app/api/auth/**`, `lib/default-preferences.ts`, `lib/model-scope.ts`, `lib/enabled-models*.ts`, `lib/model-catalog-refresh.ts`, `lib/deferred-provider-models.ts`, `lib/provider-listing*.ts`, `components/ModelsConfig.tsx`, `components/EnabledModelsSection.tsx`, `components/ModelSelector.tsx`, `components/SelectorRow.tsx`. Corporate policy, encrypted credentials/gateway and the reused admin editor are also covered there: `lib/corporate-model-*`, `components/CorporateModels.tsx`, `components/PersonalModelsPolicy.tsx`, `multiuse-manager/{corporate-models,model-admin,model-gateway,provider-fetch,provider-redaction,gateway-compat}.mjs`.
-- [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`.
+- [files-and-access.md](docs/agents/files-and-access.md): worktrees and project grouping, the file access allow-list (the `/api/files` security boundary), file tree visibility and its open directories per folder, uploads and chat file drops, folders named in a chat, the CSV/TSV table view, web password throttling. Files: `app/api/files/**`, `app/api/file-kinds/**`, `app/api/cwd/**`, `app/api/worktrees/**`, `app/api/file-index/**`, `app/api/web-auth/**`, `proxy.ts`, `lib/path-security.ts`, `lib/file-access.ts`, `lib/agent-dir.ts`, `lib/linked-directory.ts`, `lib/session-file-references*.ts`, `lib/file-path-kinds.ts`, `lib/file-tree-visibility.ts`, `lib/file-tree-expansion.ts`, `lib/file-upload-client.ts`, `lib/worktree.ts`, `lib/paths.ts`, `lib/auth-throttle.ts`, `components/ProjectWorktreePicker.tsx`, `components/NewSessionContextBar.tsx`, `components/FileExplorer.tsx`, `components/DirectoryListing.tsx`, `hooks/usePathKinds.ts`, `lib/delimited-table.ts`, `components/DelimitedTable.tsx`, the table branch of `components/FileViewer.tsx`, `hooks/useDragDrop.ts`.
 - [settings-ui.md](docs/agents/settings-ui.md): General's sidebar file-browser choice, Plugins and Skills routes, sidebar group switches, the shared `SettingsUi` blocks every settings panel and add pane uses. Files: `app/api/plugins/**`, `app/api/skills/**`, `components/SettingsUi.tsx`, `components/settings-ui-helpers.ts`, `components/SkillsConfig.tsx`, `components/PluginsConfig.tsx`, `hooks/useFilesPlacement.ts`; also before adding a settings section or add pane.
 - [subagents.md](docs/agents/subagents.md): the built-in subagent setting, profiles and their files, run status, completion notifications, the subagent viewer tab. Files: `lib/subagent*.ts`, `app/api/subagents/**`, `components/AgentsConfig.tsx`, `components/SubagentViewer.tsx`, `components/subagent-viewer-state.ts`.
 - [multiuse-workspaces.md](docs/agents/multiuse-workspaces.md): corporate admin template revisions/manifests, selective reset and personal-file preservation, live BPM authorization, worker lifecycle locks, backup and interrupted-transaction recovery. Files: `components/MultiuseAdmin*`, `app/api/multi/admin/**`, `lib/multiuse-admin-users*`, `multiuse-manager/**`.

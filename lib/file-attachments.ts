@@ -46,6 +46,28 @@ function attachmentPath(token: string): string | null {
   return filePath && filePath !== "/" ? filePath : null;
 }
 
+/**
+ * Every absolute path a message mentions, in the order it appears.
+ *
+ * The link plugin turns exactly these tokens into chips. The client needs to
+ * know which of them are directories before it can label them, and the browser
+ * cannot stat the filesystem itself.
+ */
+export function collectAttachmentPaths(value: string): string[] {
+  const paths: string[] = [];
+  const seen = new Set<string>();
+  ATTACHMENT_PATH.lastIndex = 0;
+
+  for (let match; (match = ATTACHMENT_PATH.exec(value));) {
+    const filePath = attachmentPath(match[2]);
+    if (!filePath || seen.has(filePath)) continue;
+    seen.add(filePath);
+    paths.push(filePath);
+  }
+
+  return paths;
+}
+
 /** Split one ordinary markdown text node into text and compact absolute-path links. */
 export function splitFileAttachmentText(value: string): MarkdownNode[] {
   const result: MarkdownNode[] = [];

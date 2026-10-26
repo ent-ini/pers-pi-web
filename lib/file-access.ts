@@ -2,6 +2,7 @@ import { readdirSync } from "fs";
 import { homedir } from "os";
 import path from "path";
 import { getAdditionalAllowedRoots, normalizeSlashes } from "./allowed-roots";
+import { defaultAgentDir } from "./agent-dir";
 import { isExistingPathWithinRoots, isPathWithinRoots } from "./path-security";
 import { listAllSessions } from "./session-reader";
 export { allowFileRoot, normalizeSlashes } from "./allowed-roots";
@@ -47,6 +48,11 @@ export async function getAllowedFileRoots(): Promise<Set<string>> {
   for (const root of [process.env.PI_WEB_LOCKED_CWD, process.env.PI_WEB_DEFAULT_CWD]) {
     if (root && path.isAbsolute(root)) roots.add(normalizeSlashes(root));
   }
+
+  // The folder Pi stages the files it sends in is browsable: a chat message
+  // that names it opens it like any other folder, and the files inside it
+  // open too.
+  roots.add(normalizeSlashes(path.join(defaultAgentDir(), "outbound")));
 
   for (const root of getAdditionalAllowedRoots()) roots.add(root);
 

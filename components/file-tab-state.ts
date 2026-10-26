@@ -35,6 +35,8 @@ interface OpenFileTabInput {
   filePath: string;
   sourceSessionId?: string | null;
   tabId: string;
+  /** A directory tab lists a folder instead of showing a file. */
+  kind?: "directory";
 }
 
 export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
@@ -45,6 +47,7 @@ export function openFileTab(tabs: Tab[], input: OpenFileTabInput): Tab[] {
       label: input.fileName,
       filePath: input.filePath,
       sourceSessionId: input.sourceSessionId,
+      kind: input.kind,
       viewerRevision: 0,
     }];
   }

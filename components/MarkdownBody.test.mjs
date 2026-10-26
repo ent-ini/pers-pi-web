@@ -389,3 +389,22 @@ test("keeps a block that opens a raw-text tag as it renders without line breaks"
   const list = renderMarkdown("- item <textarea>\n  more\n- two\n  lines", { keepLineBreaks: true });
   assert.match(list, /<li>two<br\/>lines<\/li>/);
 });
+
+test("renders a directory mention as a chip that carries the whole path", () => {
+  const html = renderMarkdown("Папка: /home/me/outbox.", {
+    pathKinds: new Map([["/home/me/outbox", "directory"]]),
+  });
+
+  assert.match(html, /<button (?=[^>]*class="markdown-file-attachment")(?=[^>]*aria-label="Open directory: \/home\/me\/outbox")[^>]*>/);
+  assert.match(html, /_folder\.svg/);
+  assert.match(html, /<span>\/home\/me\/outbox<\/span><\/button>\.<\/p>/);
+});
+
+test("keeps a file mention on its own name", () => {
+  const html = renderMarkdown("Файл: /home/me/outbox/report.pdf.", {
+    pathKinds: new Map([["/home/me/outbox/report.pdf", "file"]]),
+  });
+
+  assert.match(html, /aria-label="Open file: report\.pdf"/);
+  assert.match(html, /<span>report\.pdf<\/span><\/button>\.<\/p>/);
+});

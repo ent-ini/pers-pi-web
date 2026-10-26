@@ -5,10 +5,12 @@ import ReactMarkdown, { type Components, type ExtraProps } from "react-markdown"
 import { parsePdfPageFragment, resolveLocalFileHref, shouldOpenLocalFileInApp } from "@/lib/file-links";
 import { encodeFilePathForApi, getFileName } from "@/lib/file-paths";
 import { isFileAttachmentHref } from "@/lib/file-attachments";
+import { usePathKinds } from "@/hooks/usePathKinds";
+import type { PathKind } from "@/lib/file-path-kinds";
 import { markdownAppUrlTransform, markdownRehypePlugins, markdownRemarkPlugins, markdownUrlTransform, markdownUserRemarkPlugins, normalizeDisplayMath } from "@/lib/markdown";
 import { ImagePreview } from "./ImagePreview";
 import { MermaidBlock, CodeBlock } from "./MermaidBlock";
-import { getFileIcon } from "./FileIcons";
+import { FolderIcon, getFileIcon } from "./FileIcons";
 
 const MarkdownLinkContext = createContext(false);
 
@@ -18,6 +20,12 @@ interface MarkdownBodyProps {
   isStreaming?: boolean;
   cwd?: string;
   onOpenFile?: (filePath: string, page?: number) => void;
+  /** Open a mentioned directory. Falls back to the file handler. */
+  onOpenDirectory?: (filePath: string) => void;
+  /** Session the message belongs to; it decides which paths may be classified. */
+  sessionId?: string | null;
+  /** Known path kinds. Supplied by callers that already know them. */
+  pathKinds?: Map<string, PathKind>;
   /** Render every line ending as a line break, for text the user typed. */
   keepLineBreaks?: boolean;
 }
@@ -46,8 +54,12 @@ function MarkdownImage({
   );
 }
 
-export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, keepLineBreaks }: MarkdownBodyProps) {
+export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile, onOpenDirectory, sessionId, pathKinds, keepLineBreaks }: MarkdownBodyProps) {
   const normalizedMarkdown = useMemo(() => normalizeDisplayMath(children), [children]);
+  // A file mention shows its name, a directory mention the whole path: the
+  // server says which is which, because the browser cannot stat anything.
+  const detectedKinds = usePathKinds(children, sessionId, { enabled: !pathKinds });
+  const kinds = pathKinds ?? detectedKinds;
   // Stable renderer identities keep stateful blocks mounted across message hover updates.
   const components = useMemo<Components>(() => ({
     code({ className, children, ...props }) {
@@ -87,6 +99,37 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
 
       if (isAttachment && filePath && openFile) {
         const name = getFileName(filePath);
+        if (kinds.get(filePath) === "directory") {
+          // A directory name alone says little: two folders can share it. The
+          // whole path is what tells them apart.
+          return (
+            <button
+              type="button"
+              title={filePath}
+              aria-label={`Open directory: ${filePath}`}
+              onClick={() => (onOpenDirectory ?? openFile)(filePath)}
+              className="markdown-file-attachment"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "2px 8px",
+                verticalAlign: "baseline",
+                fontSize: "0.9em",
+                fontFamily: "var(--font-mono)",
+                lineHeight: 1.5,
+                color: "var(--text)",
+                background: "var(--bg-subtle)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                cursor: "pointer",
+              }}
+            >
+              <FolderIcon size={13} />
+              <span>{filePath}</span>
+            </button>
+          );
+        }
         return (
           <button
             type="button"
@@ -159,7 +202,7 @@ export function MarkdownBody({ children, className, isStreaming, cwd, onOpenFile
         </div>
       );
     },
-  }), [cwd, isStreaming, onOpenFile]);
+  }), [cwd, isStreaming, onOpenFile, onOpenDirectory, kinds]);
 
   return (
     <div className={["markdown-body", className].filter(Boolean).join(" ")}>
