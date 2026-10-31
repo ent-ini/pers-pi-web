@@ -2,8 +2,8 @@
 Description=pi-web multiuse (corporate AI chat for the buhgalter company)
 Documentation=https://github.com/ent-ini/pers-pi-web
 Requires=docker.service
-After=docker.service network-online.target
-Wants=network-online.target
+After=docker.service network-online.target tailscaled.service
+Wants=network-online.target tailscaled.service
 
 [Service]
 Type=oneshot
@@ -11,11 +11,13 @@ RemainAfterExit=yes
 User=buhgalter
 Group=buhgalter
 WorkingDirectory=/opt/pi-web-multi
-# Recreates the control-plane and the worker manager if their compose config
-# changed, and starts them with the published port that the reverse proxy
-# needs. Worker containers carry their own restart policy and are not touched.
-ExecStart=/usr/bin/docker compose -f /opt/pi-web-multi/docker-compose.multi.yml up -d
-TimeoutStartSec=300
+# The script waits for the tailscale address of the host, starts the control
+# plane and the worker manager, and recreates the control plane when the
+# published port did not survive the boot. A plain `docker compose up -d` is
+# not enough: after a failed bind at boot the container runs without the
+# published port and the reverse proxy answers 502.
+ExecStart=/usr/local/bin/pi-web-multi-up.sh
+TimeoutStartSec=600
 
 [Install]
 WantedBy=multi-user.target

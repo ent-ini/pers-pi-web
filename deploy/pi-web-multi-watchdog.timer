@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the pi-web multiuse watchdog every few minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=1min
+Unit=pi-web-multi-watchdog.service
+
+[Install]
+WantedBy=timers.target

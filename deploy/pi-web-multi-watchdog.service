@@ -1,0 +1,10 @@
+[Unit]
+Description=Watchdog for the corporate pi-web stack (heals a missing published port)
+Documentation=https://github.com/ent-ini/pers-pi-web
+
+[Service]
+Type=oneshot
+# Runs as root: the watchdog restarts the pi-web-multi.service unit, and a
+# non-root user cannot do that without a password prompt.
+ExecStart=/usr/local/bin/pi-web-multi-watchdog.sh
+TimeoutStartSec=300
